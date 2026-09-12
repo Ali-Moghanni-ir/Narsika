@@ -1,0 +1,5 @@
+{% extends "auth_base.html" %}
+{% block content %}
+<form class="auth-form" id="auth-form" method="post" action="/login"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="eyebrow gold" style="margin-bottom:12px">WELCOME BACK</div><h1>Sign in to Narsika</h1><p>Your network operations workspace.</p><label class="field">Username<input name="username" autocomplete="username" required placeholder="Enter your username"></label><label class="field">Password<span class="password-field"><input name="password" id="password" type="password" autocomplete="current-password" required placeholder="Enter your password"><button type="button" id="toggle-password" aria-label="Show password"><i data-icon="eye"></i></button></span></label><button type="submit" class="btn primary">Sign in <i data-icon="arrow"></i></button><p class="field-note" style="margin-top:16px">Use the account configured for this installation.</p></form>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ static_root }}/js/auth.js"></script>{% endblock %}

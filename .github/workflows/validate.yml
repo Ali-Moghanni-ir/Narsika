@@ -1,0 +1,54 @@
+name: Validate Narsika
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  application:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: sudo apt-get update && sudo apt-get install -y libssh-4 iputils-ping openssh-client
+      - run: python -m pip install -r requirements-dev.txt
+      - run: ansible-galaxy collection install -r Playbooks/requirements.yml -p "$RUNNER_TEMP/collections"
+      - run: python tools/patch_ansible.py "$RUNNER_TEMP/collections"
+      - run: python -m pytest -q -rs --junitxml=test-results.xml
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/collections
+      - run: python tools/check_playbooks.py
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/collections
+      - run: python tools/validate_package.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-python-${{ matrix.python-version }}
+          path: test-results.xml
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/linux_install_smoke.py
+      - run: python3 tools/docker_smoke.py --image narsika:local --skip-build
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Windows PowerShell 5.1 installer checks
+        shell: powershell
+        run: ./tools/test_windows_installer.ps1

@@ -1,0 +1,88 @@
+---
+- name: Narsika | RouterOS text configuration export
+  hosts: '{{ narsika_targets | default("mikrotik") }}'
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    narsika_apply: false
+    narsika_artifact_root: '{{ playbook_dir }}/../artifacts'
+  pre_tasks:
+  - name: Validate platform and SSH connection
+    ansible.builtin.assert:
+      that:
+      - ansible_connection == "ansible.netcommon.network_cli"
+      - ansible_network_os == "community.routeros.routeros"
+      fail_msg: Use the matching inventory group and network_cli platform.
+  - name: Read-only collection requires normal mode
+    ansible.builtin.assert:
+      that:
+      - not ansible_check_mode
+      fail_msg: Do not use --check for this collector. It reads the device and writes a local artifact.
+  - name: Require RouterOS 7 before reading configuration
+    when: not ansible_check_mode
+    block:
+    - name: Read RouterOS version
+      community.routeros.command:
+        commands:
+        - :put [/system resource get version]
+      register: _version
+      changed_when: false
+    - name: Check the supported RouterOS major version
+      ansible.builtin.assert:
+        that:
+        - _version.stdout[0] | trim is match("^7[.]")
+        fail_msg: These playbooks target RouterOS 7. RouterOS 6 needs a separate reviewed export path.
+  tasks:
+  - name: Create restricted artifact root
+    ansible.builtin.file:
+      path: '{{ narsika_artifact_root }}'
+      state: directory
+      mode: '0700'
+    delegate_to: localhost
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_become: false
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  - name: Allocate a unique directory for this host and run
+    ansible.builtin.tempfile:
+      state: directory
+      path: '{{ narsika_artifact_root }}'
+      prefix: host_{{ inventory_hostname | regex_replace("[^A-Za-z0-9_.-]", "_") }}_
+    register: _artifact
+    delegate_to: localhost
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_become: false
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  - name: Read redacted RouterOS 7 configuration
+    community.routeros.command:
+      commands:
+      - /export terse
+    register: _export
+    changed_when: false
+    no_log: true
+    failed_when: _export.stdout | join('\n') is search('(?im)(#error exporting|^failure:|syntax error|expected end
+      of command)')
+  - name: Write restricted text export to the controller
+    ansible.builtin.copy:
+      dest: '{{ _artifact.path }}/configuration.rsc'
+      content: |
+        {{ _export.stdout[0] }}
+      mode: '0600'
+    no_log: true
+    delegate_to: localhost
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_become: false
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  - name: Export location
+    ansible.builtin.debug:
+      msg: '{{ _artifact.path }}/configuration.rsc'
+  - name: Export coverage
+    ansible.builtin.debug:
+      msg: RouterOS 7 hides sensitive fields by default. This text export is not a binary backup and excludes passwords,
+        certificates and SSH keys.

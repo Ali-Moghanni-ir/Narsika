@@ -1,0 +1,11 @@
+- name: Cisco IOS Extended ACL Management
+  hosts: all
+  gather_facts: false
+  tasks:
+  - name: Ensure ACL exists and apply rule
+    cisco.ios.ios_config:
+      lines:
+      - '{{ action }} {{ protocol }} {{ ''any'' if src_ip == ''any'' else ''host ''
+        ~ src_ip }} {{ ''any'' if dst_ip == ''any'' else ''host '' ~ dst_ip }}{{ ''
+        eq '' ~ port if protocol in [''tcp'', ''udp''] else '''' }}'
+      parents: ip access-list extended {{ acl_name }}

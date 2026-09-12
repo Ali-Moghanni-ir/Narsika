@@ -1,0 +1,7 @@
+---
+route_name: branch-network
+route_destination: 198.51.100.0/24
+route_gateway: 192.0.2.1
+route_distance: 10
+allow_default_route: false
+narsika_apply: false

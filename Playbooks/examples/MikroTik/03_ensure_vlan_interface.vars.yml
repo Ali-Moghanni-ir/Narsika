@@ -1,0 +1,5 @@
+---
+vlan_name: vlan40
+parent_interface: bridge-lan
+vlan_id: 40
+narsika_apply: false

@@ -1,0 +1,25 @@
+Narsika automatic installation verification — 2026-09-07
+
+HISTORICAL: these are results from the previous authorized publication.
+For the current native release, use docs/VALIDATION.md. No new CI run or
+GitHub publication was performed for the 2026-09-08 package.
+
+Tested commit: d33747d397dadc9ae67932c0e7db75972d8304b6
+Workflow: https://github.com/Ali-Moghanni-ir/cisco-mikrotik-noc-panel/actions/runs/34119172789
+PR: https://github.com/Ali-Moghanni-ir/cisco-mikrotik-noc-panel/pull/1
+
+Ubuntu application suite: 80 passed, zero skips.
+All 16 Ansible playbooks: syntax PASS.
+Python, JavaScript, both Linux launchers, configuration and Gunicorn load: PASS.
+Linux installer twice in isolated directory with spaces: PASS.
+Container-based configuration generation, private mode and key preservation: PASS.
+Actual Docker image build, health wait and repeat startup: PASS.
+Actual HTTP login, password change, non-root UID, database writes and restart persistence: PASS.
+Windows PowerShell 5.1 syntax and prerequisite/configuration/health orchestration: PASS.
+Windows failed-command, reboot and invalid-signature rejection: PASS.
+
+Fresh Linux OS Docker package installation: command-substitution tests only.
+Clean Windows physical Desktop/WSL installation, UAC and reboot: MANUAL_REQUIRED.
+Real Cisco IOS / RouterOS / SNMPv3 firmware: LAB_REQUIRED.
+Browser interaction and visual regression: NOT_RUN.
+No real network device was modified during automated verification.

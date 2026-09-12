@@ -1,0 +1,33 @@
+- name: Professional Configuration Backup for Cisco IOS
+  hosts: all
+  gather_facts: false
+  tasks:
+  - name: Run 'show running-config' on Cisco device
+    cisco.ios.ios_command:
+      commands: show running-config
+    register: config_output
+    no_log: true
+  - name: Save configuration to local backups folder
+    ansible.builtin.copy:
+      content: '{{ config_output.stdout[0] }}'
+      dest: '{{ narsika_artifact_root }}/cisco_{{ inventory_hostname }}_config.cfg'
+      mode: '0600'
+    delegate_to: localhost
+    no_log: true
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  vars:
+    narsika_artifact_root: '{{ playbook_dir }}/../instance/manual-backups'
+  pre_tasks:
+  - name: Create private backup directory
+    ansible.builtin.file:
+      path: '{{ narsika_artifact_root }}'
+      state: directory
+      mode: '0700'
+    delegate_to: localhost
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'

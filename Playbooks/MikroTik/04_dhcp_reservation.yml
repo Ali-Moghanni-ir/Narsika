@@ -1,0 +1,142 @@
+---
+- name: Narsika | Ensure a DHCP reservation
+  hosts: '{{ narsika_targets | default("mikrotik") }}'
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    narsika_apply: false
+    narsika_artifact_root: '{{ playbook_dir }}/../artifacts'
+    dhcp_server: null
+    lease_address: null
+    lease_mac: null
+    lease_comment: narsika-managed
+    _ipv4_re: (?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])
+  pre_tasks:
+  - name: Validate platform and SSH connection
+    ansible.builtin.assert:
+      that:
+      - ansible_connection == "ansible.netcommon.network_cli"
+      - ansible_network_os == "community.routeros.routeros"
+      fail_msg: Use the matching inventory group and network_cli platform.
+  - name: Require a boolean execution flag
+    ansible.builtin.assert:
+      that:
+      - narsika_apply is boolean
+      fail_msg: Set narsika_apply to YAML/JSON true or false, not a string.
+  - name: Require RouterOS 7 before reading configuration
+    when: narsika_apply | bool and not ansible_check_mode
+    block:
+    - name: Read RouterOS version
+      community.routeros.command:
+        commands:
+        - :put [/system resource get version]
+      register: _version
+      changed_when: false
+    - name: Check the supported RouterOS major version
+      ansible.builtin.assert:
+        that:
+        - _version.stdout[0] | trim is match("^7[.]")
+        fail_msg: These playbooks target RouterOS 7. RouterOS 6 needs a separate reviewed export path.
+  - name: Validate reservation input
+    ansible.builtin.assert:
+      that:
+      - dhcp_server is string
+      - dhcp_server | length > 0
+      - lease_address is string
+      - lease_address is match("^" ~ _ipv4_re ~ "$")
+      - lease_mac is string
+      - lease_mac is match("^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
+      - lease_comment is string
+      fail_msg: Provide an existing DHCP server, IPv4 address, colon-separated MAC and comment.
+  tasks:
+  - name: Planned DHCP reservation
+    ansible.builtin.debug:
+      msg:
+        server: '{{ dhcp_server }}'
+        address: '{{ lease_address }}'
+        mac: '{{ lease_mac | upper }}'
+        policy: Create only if absent. Do not convert a dynamic lease or overwrite another address.
+  - name: Execution mode
+    ansible.builtin.debug:
+      msg:
+        apply: '{{ narsika_apply }}'
+        check_mode: '{{ ansible_check_mode }}'
+        note: Preview by default. Device write tasks require narsika_apply=true and normal mode.
+  - name: Apply the reviewed operation to one host
+    when: narsika_apply | bool and not ansible_check_mode
+    block:
+    - name: Create restricted artifact root
+      ansible.builtin.file:
+        path: '{{ narsika_artifact_root }}'
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Allocate a unique directory for this host and run
+      ansible.builtin.tempfile:
+        state: directory
+        path: '{{ narsika_artifact_root }}'
+        prefix: host_{{ inventory_hostname | regex_replace("[^A-Za-z0-9_.-]", "_") }}_
+      register: _artifact
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Read redacted RouterOS 7 configuration
+      community.routeros.command:
+        commands:
+        - /export terse
+      register: _export
+      changed_when: false
+      no_log: true
+      failed_when: _export.stdout | join('\n') is search('(?im)(#error exporting|^failure:|syntax error|expected
+        end of command)')
+    - name: Write restricted text export to the controller
+      ansible.builtin.copy:
+        dest: '{{ _artifact.path }}/configuration.rsc'
+        content: |
+          {{ _export.stdout[0] }}
+        mode: '0600'
+      no_log: true
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Ensure the requested RouterOS resource
+      community.routeros.command:
+        commands:
+        - |-
+          {
+          :local serverName {{ dhcp_server | community.routeros.quote_argument_value }};
+          :local desiredAddress {{ lease_address | community.routeros.quote_argument_value }};
+          :local desiredMac {{ lease_mac | upper | community.routeros.quote_argument_value }};
+          :if ([:len [/ip dhcp-server find where name=$serverName]] != 1) do={ :error "DHCP server missing or ambiguous"; };
+          :local existing [/ip dhcp-server lease find where server=$serverName and mac-address=$desiredMac];
+          :if ([:len $existing] > 1) do={ :error "Multiple leases match this MAC"; };
+          :if ([:len $existing] = 0) do={
+            :if ([:len [/ip dhcp-server lease find where server=$serverName and address=$desiredAddress]] > 0) do={ :error "Address is already leased"; };
+            /ip dhcp-server lease add server=$serverName address=$desiredAddress mac-address=$desiredMac comment={{ lease_comment | community.routeros.quote_argument_value }} disabled=no;
+            :put "NARSIKA_CHANGED";
+          } else={
+            :if (([:tostr [/ip dhcp-server lease get $existing address]] != $desiredAddress) || [/ip dhcp-server lease get $existing dynamic] || [/ip dhcp-server lease get $existing disabled]) do={ :error "Existing lease differs or is dynamic; review manually"; };
+            :put "NARSIKA_UNCHANGED";
+          };
+          }
+      register: _apply
+      changed_when: _apply.stdout[0] is search('(?m)^NARSIKA_CHANGED\s*$')
+      failed_when: not (_apply.stdout[0] is search('(?m)^NARSIKA_(CHANGED|UNCHANGED)\s*$'))
+    - name: Result
+      ansible.builtin.debug:
+        msg: '{{ _apply.stdout[0] }}'
+    - name: Before-change export
+      ansible.builtin.debug:
+        msg: '{{ _artifact.path }}/configuration.rsc'

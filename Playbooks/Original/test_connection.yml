@@ -1,0 +1,14 @@
+---
+- name: Test Connection and Gather Basic Health Data
+  hosts: cisco_routers
+  gather_facts: no
+
+  tasks:
+    - name: Run 'show version' on the router
+      cisco.ios.ios_command:
+        commands: show version
+      register: router_output
+
+    - name: Display the first few lines of the output
+      debug:
+        msg: "{{ router_output.stdout_lines[0][0:3] }}"

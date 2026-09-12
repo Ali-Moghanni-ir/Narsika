@@ -1,0 +1,7 @@
+---
+interface_name: GigabitEthernet1/0/10
+access_vlan: 40
+interface_description: Engineering workstation
+allow_trunk_conversion: false
+save_config: false
+narsika_apply: false

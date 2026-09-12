@@ -1,0 +1,12 @@
+- name: MikroTik Firewall Rule Management
+  hosts: all
+  gather_facts: false
+  tasks:
+  - name: Apply Firewall Filter Rule
+    community.routeros.command:
+      commands:
+      - /ip firewall filter add chain=forward action={{ 'accept' if action == 'permit'
+        else 'drop' }}{{ ' protocol=' ~ protocol if protocol != 'ip' else '' }}{{
+        ' src-address=' ~ src_ip if src_ip != 'any' else '' }}{{ ' dst-address=' ~
+        dst_ip if dst_ip != 'any' else '' }}{{ ' dst-port=' ~ port if protocol in
+        ['tcp', 'udp'] else '' }} comment="{{ acl_name }}"

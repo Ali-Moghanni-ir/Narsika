@@ -1,0 +1,5 @@
+---
+ntp_server: 192.0.2.20
+syslog_server: 192.0.2.21
+save_config: false
+narsika_apply: false

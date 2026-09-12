@@ -1,0 +1,16 @@
+.git
+.env
+instance
+.venv*
+__pycache__
+**/__pycache__
+*.zip
+reference
+tests
+docs
+tools/*
+!tools/patch_ansible.py
+!tools/maintenance.py
+!tools/restore_snapshot.py
+!tools/snapshot.py
+!tools/bootstrap.py
