@@ -1,0 +1,43 @@
+name: narsika
+services:
+  narsika:
+    build: .
+    image: narsika:local
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    ports:
+      - "${NARSIKA_BIND_ADDRESS:-0.0.0.0}:${NARSIKA_PORT:-8000}:8000"
+    volumes:
+      - narsika-data:/var/lib/narsika
+    stop_grace_period: 330s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_RAW
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+  bootstrap:
+    image: narsika:local
+    profiles: ["setup"]
+    env_file:
+      - .env
+    volumes:
+      - narsika-data:/var/lib/narsika
+    network_mode: none
+    entrypoint: ["python", "tools/bootstrap.py"]
+    logging:
+      driver: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  narsika-data:

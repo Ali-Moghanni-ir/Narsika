@@ -1,0 +1,142 @@
+---
+- name: Narsika | Ensure a RouterOS VLAN interface
+  hosts: '{{ narsika_targets | default("mikrotik") }}'
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    narsika_apply: false
+    narsika_artifact_root: '{{ playbook_dir }}/../artifacts'
+    vlan_name: null
+    parent_interface: null
+    vlan_id: null
+  pre_tasks:
+  - name: Validate platform and SSH connection
+    ansible.builtin.assert:
+      that:
+      - ansible_connection == "ansible.netcommon.network_cli"
+      - ansible_network_os == "community.routeros.routeros"
+      fail_msg: Use the matching inventory group and network_cli platform.
+  - name: Require a boolean execution flag
+    ansible.builtin.assert:
+      that:
+      - narsika_apply is boolean
+      fail_msg: Set narsika_apply to YAML/JSON true or false, not a string.
+  - name: Require RouterOS 7 before reading configuration
+    when: narsika_apply | bool and not ansible_check_mode
+    block:
+    - name: Read RouterOS version
+      community.routeros.command:
+        commands:
+        - :put [/system resource get version]
+      register: _version
+      changed_when: false
+    - name: Check the supported RouterOS major version
+      ansible.builtin.assert:
+        that:
+        - _version.stdout[0] | trim is match("^7[.]")
+        fail_msg: These playbooks target RouterOS 7. RouterOS 6 needs a separate reviewed export path.
+  - name: Validate VLAN input
+    ansible.builtin.assert:
+      that:
+      - vlan_name is string
+      - vlan_name | length > 0
+      - vlan_name | length <= 64
+      - parent_interface is string
+      - parent_interface | length > 0
+      - vlan_name != parent_interface
+      - vlan_id | string is match("^[0-9]+$")
+      - vlan_id | int >= 1
+      - vlan_id | int <= 4094
+      fail_msg: Specify a VLAN name, existing parent interface and VLAN ID 1–4094.
+  tasks:
+  - name: Planned VLAN interface
+    ansible.builtin.debug:
+      msg:
+        name: '{{ vlan_name }}'
+        parent: '{{ parent_interface }}'
+        vlan_id: '{{ vlan_id }}'
+        policy: Create if absent; fail on a conflicting existing interface. No bridge VLAN membership changes.
+  - name: Execution mode
+    ansible.builtin.debug:
+      msg:
+        apply: '{{ narsika_apply }}'
+        check_mode: '{{ ansible_check_mode }}'
+        note: Preview by default. Device write tasks require narsika_apply=true and normal mode.
+  - name: Apply the reviewed operation to one host
+    when: narsika_apply | bool and not ansible_check_mode
+    block:
+    - name: Create restricted artifact root
+      ansible.builtin.file:
+        path: '{{ narsika_artifact_root }}'
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Allocate a unique directory for this host and run
+      ansible.builtin.tempfile:
+        state: directory
+        path: '{{ narsika_artifact_root }}'
+        prefix: host_{{ inventory_hostname | regex_replace("[^A-Za-z0-9_.-]", "_") }}_
+      register: _artifact
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Read redacted RouterOS 7 configuration
+      community.routeros.command:
+        commands:
+        - /export terse
+      register: _export
+      changed_when: false
+      no_log: true
+      failed_when: _export.stdout | join('\n') is search('(?im)(#error exporting|^failure:|syntax error|expected
+        end of command)')
+    - name: Write restricted text export to the controller
+      ansible.builtin.copy:
+        dest: '{{ _artifact.path }}/configuration.rsc'
+        content: |
+          {{ _export.stdout[0] }}
+        mode: '0600'
+      no_log: true
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Ensure the requested RouterOS resource
+      community.routeros.command:
+        commands:
+        - |-
+          {
+          :local desiredName {{ vlan_name | community.routeros.quote_argument_value }};
+          :local parentName {{ parent_interface | community.routeros.quote_argument_value }};
+          :local desiredId {{ vlan_id | int }};
+          :if ([:len [/interface find where name=$parentName]] != 1) do={ :error "Parent interface missing or ambiguous"; };
+          :local existing [/interface vlan find where name=$desiredName];
+          :if ([:len $existing] > 1) do={ :error "Ambiguous VLAN name"; };
+          :if ([:len $existing] = 0) do={
+            :if ([:len [/interface find where name=$desiredName]] > 0) do={ :error "Name is used by another interface type"; };
+            /interface vlan add name=$desiredName interface=$parentName vlan-id=$desiredId disabled=no comment="narsika-managed";
+            :put "NARSIKA_CHANGED";
+          } else={
+            :if (([/interface vlan get $existing vlan-id] != $desiredId) || ([:tostr [/interface vlan get $existing interface]] != $parentName) || [/interface vlan get $existing disabled]) do={ :error "Existing VLAN differs; review before changing it"; };
+            :put "NARSIKA_UNCHANGED";
+          };
+          }
+      register: _apply
+      changed_when: _apply.stdout[0] is search('(?m)^NARSIKA_CHANGED\s*$')
+      failed_when: not (_apply.stdout[0] is search('(?m)^NARSIKA_(CHANGED|UNCHANGED)\s*$'))
+    - name: Result
+      ansible.builtin.debug:
+        msg: '{{ _apply.stdout[0] }}'
+    - name: Before-change export
+      ansible.builtin.debug:
+        msg: '{{ _artifact.path }}/configuration.rsc'

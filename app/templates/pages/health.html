@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="eyebrow">NARSIKA / WORKSPACE</div><h1>Device health</h1><p>Status first. Telemetry when you need it.</p></div><div class="page-actions"><select id="monitor-device" aria-label="Select device"></select><button class="btn " id="monitor-refresh"><i data-icon="refresh"></i>Refresh sample</button></div></div><div id="health-body"></div>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ static_root }}/js/monitoring.js"></script>{% endblock %}

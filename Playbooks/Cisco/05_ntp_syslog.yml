@@ -1,0 +1,107 @@
+---
+- name: Narsika | Add NTP and syslog destinations
+  hosts: '{{ narsika_targets | default("cisco") }}'
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    narsika_apply: false
+    narsika_artifact_root: '{{ playbook_dir }}/../artifacts'
+    ntp_server: null
+    syslog_server: null
+    save_config: false
+    _ipv4_re: (?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])
+  pre_tasks:
+  - name: Validate platform and SSH connection
+    ansible.builtin.assert:
+      that:
+      - ansible_connection == "ansible.netcommon.network_cli"
+      - ansible_network_os == "cisco.ios.ios"
+      fail_msg: Use the matching inventory group and network_cli platform.
+  - name: Require a boolean execution flag
+    ansible.builtin.assert:
+      that:
+      - narsika_apply is boolean
+      fail_msg: Set narsika_apply to YAML/JSON true or false, not a string.
+  - name: Validate management destinations
+    ansible.builtin.assert:
+      that:
+      - ntp_server is string
+      - ntp_server is match("^" ~ _ipv4_re ~ "$")
+      - syslog_server is string
+      - syslog_server is match("^" ~ _ipv4_re ~ "$")
+      - save_config is boolean
+      fail_msg: Use IPv4 addresses for both servers and boolean save_config.
+  tasks:
+  - name: Planned additive configuration
+    ansible.builtin.debug:
+      msg:
+      - ntp server {{ ntp_server }}
+      - logging host {{ syslog_server }}
+  - name: Execution mode
+    ansible.builtin.debug:
+      msg:
+        apply: '{{ narsika_apply }}'
+        check_mode: '{{ ansible_check_mode }}'
+        note: Preview by default. Device write tasks require narsika_apply=true and normal mode.
+  - name: Apply the reviewed operation to one host
+    when: narsika_apply | bool and not ansible_check_mode
+    block:
+    - name: Create restricted artifact root
+      ansible.builtin.file:
+        path: '{{ narsika_artifact_root }}'
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Allocate a unique directory for this host and run
+      ansible.builtin.tempfile:
+        state: directory
+        path: '{{ narsika_artifact_root }}'
+        prefix: host_{{ inventory_hostname | regex_replace("[^A-Za-z0-9_.-]", "_") }}_
+      register: _artifact
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Capture running configuration before any change
+      cisco.ios.ios_config:
+        backup: true
+        backup_options:
+          dir_path: '{{ _artifact.path }}'
+          filename: running-config.cfg
+        save_when: never
+      register: _backup
+      no_log: true
+    - name: Restrict configuration file permissions
+      ansible.builtin.file:
+        path: '{{ _backup.backup_path }}'
+        mode: '0600'
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Ensure the requested destinations are present
+      cisco.ios.ios_config:
+        lines:
+        - ntp server {{ ntp_server }}
+        - logging host {{ syslog_server }}
+        match: line
+        save_when: '{{ "changed" if save_config else "never" }}'
+    - name: Read NTP and logging status
+      cisco.ios.ios_command:
+        commands:
+        - show ntp associations
+        - show logging
+      changed_when: false
+    - name: Before-change backup
+      ansible.builtin.debug:
+        msg: '{{ _backup.backup_path }}'

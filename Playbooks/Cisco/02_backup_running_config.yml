@@ -1,0 +1,67 @@
+---
+- name: Narsika | Running configuration backup
+  hosts: '{{ narsika_targets | default("cisco") }}'
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    narsika_apply: false
+    narsika_artifact_root: '{{ playbook_dir }}/../artifacts'
+  pre_tasks:
+  - name: Validate platform and SSH connection
+    ansible.builtin.assert:
+      that:
+      - ansible_connection == "ansible.netcommon.network_cli"
+      - ansible_network_os == "cisco.ios.ios"
+      fail_msg: Use the matching inventory group and network_cli platform.
+  - name: Read-only collection requires normal mode
+    ansible.builtin.assert:
+      that:
+      - not ansible_check_mode
+      fail_msg: Do not use --check for this collector. It reads the device and writes a local artifact.
+  tasks:
+  - name: Create restricted artifact root
+    ansible.builtin.file:
+      path: '{{ narsika_artifact_root }}'
+      state: directory
+      mode: '0700'
+    delegate_to: localhost
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_become: false
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  - name: Allocate a unique directory for this host and run
+    ansible.builtin.tempfile:
+      state: directory
+      path: '{{ narsika_artifact_root }}'
+      prefix: host_{{ inventory_hostname | regex_replace("[^A-Za-z0-9_.-]", "_") }}_
+    register: _artifact
+    delegate_to: localhost
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_become: false
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  - name: Capture running configuration before any change
+    cisco.ios.ios_config:
+      backup: true
+      backup_options:
+        dir_path: '{{ _artifact.path }}'
+        filename: running-config.cfg
+      save_when: never
+    register: _backup
+    no_log: true
+  - name: Restrict configuration file permissions
+    ansible.builtin.file:
+      path: '{{ _backup.backup_path }}'
+      mode: '0600'
+    delegate_to: localhost
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_become: false
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  - name: Backup location
+    ansible.builtin.debug:
+      msg: '{{ _backup.backup_path }}'

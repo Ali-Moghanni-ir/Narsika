@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="eyebrow">NARSIKA / WORKSPACE</div><h1>Configuration backups</h1><p>Keep a traceable history. Compare what changed.</p></div><div class="page-actions"><button class="btn primary" id="create-backup" data-permission="operate"><i data-icon="backup"></i>Create backup</button></div></div><div class="summary-grid" id="backup-summary"></div><section class="panel"><div class="toolbar"><input id="backup-search" class="search" type="search" placeholder="Filter by device…" aria-label="Search backups"><button class="btn " id="compare-backups"><i data-icon="code"></i>Compare selected</button></div><div id="backup-table"></div></section>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ static_root }}/js/backups.js"></script>{% endblock %}

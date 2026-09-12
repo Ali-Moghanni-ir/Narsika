@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="eyebrow">NARSIKA / WORKSPACE</div><h1>Workspace settings</h1><p>Manage workspace preferences, credentials and access.</p></div><div class="page-actions"><a class="btn" href="/change-password.html">Change password</a><a class="btn" href="/logout">Sign out</a></div></div><div class="tabs" role="tablist"><button role="tab" aria-selected="true" class="active" data-tab="general">General</button><button role="tab" aria-selected="false" data-tab="credentials">Credentials</button><button role="tab" aria-selected="false" data-tab="users">Users & roles</button><button role="tab" aria-selected="false" data-tab="connection">Connection</button></div><div id="settings-body"></div>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ static_root }}/js/settings.js"></script>{% endblock %}

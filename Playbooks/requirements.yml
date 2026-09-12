@@ -1,0 +1,10 @@
+---
+collections:
+  - name: cisco.ios
+    version: 11.5.0
+  - name: community.routeros
+    version: 3.21.0
+  - name: ansible.netcommon
+    version: 8.6.2
+  - name: ansible.utils
+    version: 6.1.0

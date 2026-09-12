@@ -1,0 +1,47 @@
+[Unit]
+Description=Narsika network operations
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=narsika
+Group=narsika
+WorkingDirectory=/opt/narsika/current
+Environment=NARSIKA_ENV_FILE=/etc/narsika/narsika.env
+Environment=NARSIKA_DATA_DIR=/var/lib/narsika
+Environment=NARSIKA_BACKUP_DIR=/var/lib/narsika/backups
+Environment=ANSIBLE_COLLECTIONS_PATH=/opt/narsika/current/.venv/collections
+Environment=PATH=/opt/narsika/current/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/narsika/current/.venv/bin/python /opt/narsika/current/app.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=330
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/narsika
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+CapabilityBoundingSet=CAP_NET_RAW
+AmbientCapabilities=CAP_NET_RAW
+TasksMax=256
+MemoryMax=2G
+CPUQuota=200%
+LimitNOFILE=4096
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

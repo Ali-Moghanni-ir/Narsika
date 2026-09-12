@@ -1,0 +1,1 @@
+{% extends "auth_base.html" %}{% block content %}<form class="auth-form" method="post" action="/logout"><h1>Sign out</h1><p>End your Narsika session?</p><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn primary" type="submit">Sign out</button><a href="/" class="btn">Back to workspace</a></form>{% endblock %}

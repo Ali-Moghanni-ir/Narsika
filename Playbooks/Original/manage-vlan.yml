@@ -1,0 +1,18 @@
+---
+- name: Dynamic VLAN Management Execution
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: CREATE VLAN Configuration
+      cisco.ios.ios_config:
+        lines:
+          - name {{ vlan_name }}
+        parents: vlan {{ vlan_id }}
+      when: state == 'present'
+
+    - name: DELETE VLAN Configuration
+      cisco.ios.ios_config:
+        lines:
+          - no vlan {{ vlan_id }}
+      when: state == 'absent'

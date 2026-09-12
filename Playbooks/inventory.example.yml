@@ -1,0 +1,24 @@
+---
+all:
+  vars:
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_network_cli_ssh_type: paramiko
+    ansible_user: noc
+    ansible_port: 22
+    ansible_command_timeout: 90
+  children:
+    cisco:
+      vars:
+        ansible_network_os: cisco.ios.ios
+        ansible_become: true
+        ansible_become_method: enable
+      hosts:
+        cisco_lab:
+          ansible_host: 192.0.2.10
+    mikrotik:
+      vars:
+        ansible_network_os: community.routeros.routeros
+        ansible_become: false
+      hosts:
+        mikrotik_lab:
+          ansible_host: 192.0.2.11
