@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright 2026 Ali Moghanni
 """Emit task lifecycle only; never serialize module results, arguments or raw output."""
 import json
 import re

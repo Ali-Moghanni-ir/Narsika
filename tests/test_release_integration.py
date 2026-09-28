@@ -209,7 +209,10 @@ def test_final_readme_and_brand_assets_are_packaged(admin, client):
     assert not (ROOT / 'README-GITHUB.md').exists()
     assert 'storage,codes' not in readme and '-+-' not in readme
     assert '## Documentation' not in readme
-    assert '## License' not in readme
+    assert '## License' in readme and '(LICENSE)' in readme
+    assert 'LICENSE' in paths and 'callback_plugins/LICENSE' in paths
+    assert 'FSL-1.1-ALv2' in (ROOT / 'LICENSE').read_text()
+    assert 'open source' not in readme.lower() and 'open-source' not in readme.lower()
     assert 'Public Beta · Free to use, always.' in readme
     assert 'run_windows.bat -WSL' in readme and 'bash run_linux.sh' in readme
     links = re.findall(r'!\[[^\]]*\]\(([^)]+)\)|<img[^>]*src="([^"]+)"', readme)

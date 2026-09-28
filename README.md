@@ -295,6 +295,16 @@ Narsika includes:
 
 The first release uses HTTP. Deploy it on a trusted management network and do not expose the application port directly to the public Internet.
 
+## License
+
+Narsika is **source-available** under the [Functional Source License, Version 1.1, ALv2 Future License](LICENSE) (FSL-1.1-ALv2).
+
+- You may use, study and modify Narsika for any purpose other than a *Competing Use*, including running it inside your organization, education, research and professional services for other Narsika users.
+- A Competing Use means offering Narsika, or something that substitutes for it, as a commercial product or service.
+- Each release becomes available under the Apache License 2.0 two years after it is published.
+
+The Ansible callback plugin in `callback_plugins/` is licensed separately under GPL-3.0-or-later because it extends Ansible's plugin classes. Third-party dependencies keep their own licenses.
+
 ---
 
 <p align="center">
