@@ -1,5 +1,28 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-head"><div><div class="eyebrow">NARSIKA / WORKSPACE</div><h1>Device inventory</h1><p>Every device. One operational view.</p></div><div class="page-actions"><button class="btn " id="export-inventory"><i data-icon="download"></i>Export CSV</button><button class="btn primary" id="add-device" data-permission="admin"><i data-icon="plus"></i>Add device</button></div></div><div class="summary-grid" id="inventory-summary"></div><section class="panel"><div class="toolbar"><input class="search" type="search" id="inventory-search" placeholder="Search hostname, IP or model…" aria-label="Search devices"><select id="vendor-filter" aria-label="Vendor"><option value="">All vendors</option><option>Cisco</option><option>MikroTik</option></select><select id="status-filter" aria-label="Status"><option value="">All statuses</option><option>online</option><option>degraded</option><option>offline</option><option>unknown</option></select><select id="group-filter" aria-label="Group"></select><button class="btn " id="manage-groups" data-permission="admin"><i data-icon="layers"></i>Groups</button></div><div id="inventory-table"></div><div class="pagination"><span id="inventory-count"></span><div><button class="btn " id="inventory-prev">Previous</button><button class="btn " id="inventory-next">Next</button></div></div></section>
+<div class="page-head">
+  <div><div class="eyebrow">NARSIKA / WORKSPACE</div><h1>Device inventory</h1><p>Every device. One operational view.</p></div>
+  <div class="page-actions"><button class="btn" id="refresh-inventory"><i data-icon="refresh"></i>Refresh</button><button class="btn" id="export-inventory"><i data-icon="download"></i>Export CSV</button><button class="btn primary" id="add-device" data-permission="admin"><i data-icon="plus"></i>Add device</button></div>
+</div>
+<div class="summary-grid" id="inventory-summary"></div>
+<section id="inventory-setup" class="inventory-setup" aria-label="Workspace setup" hidden></section>
+<div class="workspace-shortcuts" aria-label="Network workflows">
+  <a href="/health.html"><i data-icon="pulse"></i>Inspect health<i data-icon="arrow"></i></a>
+  <a href="/firewall.html"><i data-icon="shield"></i>Plan firewall changes<i data-icon="arrow"></i></a>
+  <a href="/backups.html"><i data-icon="backup"></i>Review backups<i data-icon="arrow"></i></a>
+</div>
+<section class="panel">
+  <div class="panel-head"><h2>Managed devices</h2><span class="inventory-updated" id="inventory-updated" role="status"></span></div>
+  <div class="toolbar">
+    <input class="search" type="search" id="inventory-search" placeholder="Search hostname, IP or model…" aria-label="Search devices">
+    <select id="vendor-filter" aria-label="Vendor"><option value="">All vendors</option><option>Cisco</option><option>MikroTik</option></select>
+    <select id="status-filter" aria-label="Status"><option value="">All statuses</option><option>online</option><option>degraded</option><option>offline</option><option>unknown</option></select>
+    <select id="group-filter" aria-label="Group"></select>
+    <button class="btn ghost" id="clear-inventory-filters" hidden>Clear filters</button>
+    <button class="btn" id="manage-groups" data-permission="admin"><i data-icon="layers"></i>Groups</button>
+  </div>
+  <div id="inventory-table"></div>
+  <div class="pagination"><span id="inventory-count"></span><div><button class="btn" id="inventory-prev">Previous</button><button class="btn" id="inventory-next">Next</button></div></div>
+</section>
 {% endblock %}
 {% block scripts %}<script type="module" src="{{ static_root }}/js/inventory.js"></script>{% endblock %}

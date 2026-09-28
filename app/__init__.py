@@ -118,6 +118,10 @@ def create_app(config=None):
     def healthz():
         from sqlalchemy import text
         db.session.execute(text('SELECT 1'))
+        if app.config['START_WORKER']:
+            manager=app.extensions.get('jobs')
+            if not manager or not manager.available():
+                return jsonify(status='unavailable'),503
         return jsonify(status='ok')
     app.context_processor(lambda:dict(csrf_token=csrf_token,static_root='/static'))
     with app.app_context(),startup_guard(app):
@@ -150,6 +154,10 @@ def create_app(config=None):
     from .routes import web
     from .api import api
     app.register_blueprint(web);app.register_blueprint(api,url_prefix='/api')
+    from .firewall_api import firewall_api
+    app.register_blueprint(firewall_api, url_prefix='/api/firewall')
+    from .schedules_api import schedules_api
+    app.register_blueprint(schedules_api, url_prefix='/api/schedules')
     if app.config['START_WORKER']:
         from .services.jobs import JobManager
         app.extensions['jobs']=JobManager(app)

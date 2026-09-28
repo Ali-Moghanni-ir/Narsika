@@ -127,8 +127,47 @@ class OperationRun(db.Model):
     created_at = db.Column(db.String(40), default=now)
     started_at = db.Column(db.String(40))
     finished_at = db.Column(db.String(40))
-    def public(self):
-        return {k:getattr(self,k) for k in ('id','kind','status','device_id','requested_by_id','output','progress','error_code','created_at','started_at','finished_at','cancel_requested')}
+    def public(self,include_output=True):
+        return {k:getattr(self,k) for k in ('id','kind','status','device_id','requested_by_id','output','progress','error_code','created_at','started_at','finished_at','cancel_requested') if include_output or k!='output'}
+
+class ScheduledTask(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    creation_token = db.Column(db.String(40), nullable=False, unique=True)
+    last_review_token = db.Column(db.String(40), unique=True)
+    name = db.Column(db.String(100), nullable=False)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    owner = db.relationship('User')
+    kind = db.Column(db.String(20), nullable=False)
+    enabled = db.Column(db.Boolean, nullable=False, default=False)
+    revision = db.Column(db.Integer, nullable=False, default=1)
+    rule = db.Column(db.JSON, nullable=False)
+    encrypted_definition = db.Column(db.Text, nullable=False)
+    next_due = db.Column(db.Float, index=True)
+    attention = db.Column(db.String(500), default='')
+    created_at = db.Column(db.String(40), default=now)
+    updated_at = db.Column(db.String(40), default=now)
+
+class ScheduleOccurrence(db.Model):
+    __table_args__ = (db.UniqueConstraint('task_id','token',name='uq_schedule_occurrence'),)
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey('scheduled_task.id'), nullable=False, index=True)
+    token = db.Column(db.String(100), nullable=False)
+    scheduled_for = db.Column(db.Float, nullable=False)
+    source = db.Column(db.String(20), nullable=False)
+    status = db.Column(db.String(40), nullable=False)
+    detail = db.Column(db.String(500), default='')
+    revision = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.String(40), default=now)
+    runs = db.relationship('ScheduleRun', lazy='selectin')
+
+class ScheduleRun(db.Model):
+    __table_args__ = (db.UniqueConstraint('occurrence_id','device_id',name='uq_schedule_target'),)
+    id = db.Column(db.Integer, primary_key=True)
+    occurrence_id = db.Column(db.Integer, db.ForeignKey('schedule_occurrence.id'), nullable=False, index=True)
+    device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)
+    device_name = db.Column(db.String(100), nullable=False)
+    run_id = db.Column(db.Integer, db.ForeignKey('operation_run.id'), nullable=False, unique=True)
+    run = db.relationship('OperationRun', lazy='joined')
 
 class Backup(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -174,6 +213,18 @@ class DiscoveryCandidate(db.Model):
     imported_device_id = db.Column(db.Integer, db.ForeignKey('device.id'))
     def public(self):
         return {k:getattr(self,k) for k in ('id','scan_id','ip_address','vendor_hint','verified_platform','verified_credential_id','verified_at','imported_device_id')}
+
+class FirewallReview(db.Model):
+    """Immutable, encrypted review receipt. Consumed atomically when queued."""
+    id = db.Column(db.String(32), primary_key=True)
+    device_id = db.Column(db.Integer, db.ForeignKey('device.id'), nullable=False)
+    actor_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    encrypted_plan = db.Column(db.Text, nullable=False)
+    checksum = db.Column(db.String(64), nullable=False)
+    expires_at = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(32), default='REVIEWED', nullable=False)
+    run_id = db.Column(db.Integer, db.ForeignKey('operation_run.id'), unique=True)
+    created_at = db.Column(db.String(40), default=now)
 
 class Setting(db.Model):
     key = db.Column(db.String(100), primary_key=True)
