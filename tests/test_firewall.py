@@ -146,7 +146,7 @@ def test_verify_detects_external_changes_and_misplaced_rules():
 def test_view_page_and_existing_acl_route_remain(admin):
     assert admin.get('/firewall.html').status_code==200
     assert admin.get('/firewall').status_code==200
-    assert b'Firewall control' in admin.get('/acl.html').data
+    assert admin.get('/acl.html').headers['Location'].endswith('/firewall.html')
     assert admin.get('/api/firewall/capabilities').json['data']['automatic_rollback'] is False
 
 

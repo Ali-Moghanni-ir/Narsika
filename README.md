@@ -58,7 +58,7 @@ Every new installation starts clean. Narsika does not create demonstration devic
 - Upload and replace custom Playbooks as an administrator.
 - Let operators execute active Playbooks without granting upload permission.
 - Review supported operations before applying them to a device.
-- Create Cisco ACL entries and add reviewed MikroTik firewall rules.
+- Add reviewed MikroTik filter rules and Cisco ACL entries, or create new Cisco named extended ACLs, from one Firewall workspace.
 - Manage Cisco VLAN operations through the same controlled execution path.
 - Track queued, running, successful, failed, and cancelled operations.
 - Retain sanitized task events, result history, and generated artifacts.
@@ -90,7 +90,7 @@ No schedule is enabled automatically. Missed windows do not trigger a catch-up b
 - Keep an immutable review receipt, execution result and audit trail.
 - Allow administrators to accept possible management lockout with explicit, typed confirmation.
 
-This preview adds RouterOS filter rules and entries to supported existing Cisco named extended ACLs. Existing rules and bindings remain intact; it does not enable listening services or manage the Ubuntu host firewall. Automatic timed rollback is not available. Hardware acceptance and the exact supported scope are documented in the review guide.
+This preview adds RouterOS filter rules, entries to supported existing Cisco named extended ACLs, and new unbound Cisco named extended ACLs. Existing rules and bindings remain intact; it does not enable listening services or manage the Ubuntu host firewall. Automatic timed rollback is not available. Hardware acceptance and the exact supported scope are documented in the review guide.
 
 ## Internal roles
 
@@ -99,7 +99,7 @@ Narsika permissions belong to Narsika accounts. Ubuntu and Windows usernames are
 | Role | Intended access |
 |---|---|
 | **ADMIN** | Manage users, settings, devices, credentials, Playbook uploads, and all operations |
-| **OPERATOR** | Monitor devices and run existing Playbooks, backups, VLAN, and ACL operations |
+| **OPERATOR** | Monitor devices, run existing Playbooks, backups and VLAN operations, and apply scoped firewall changes |
 | **VIEWER** | View inventory, monitoring results, backups, run history, and audit records |
 
 Anyone who can reach the Narsika web address can open the sign-in page. Their internal role determines what they can view or change after authentication.

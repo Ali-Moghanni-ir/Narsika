@@ -32,7 +32,7 @@ Run now can execute a paused task after explicit confirmation, with current auth
 
 ## Firewall Control Preview
 
-All endpoints below use the existing authenticated JSON envelope and CSRF header on POST. This is an additive internal API; previous automation/ACL contracts are unchanged.
+All endpoints below use the existing authenticated JSON envelope and CSRF header on POST. This is an additive internal API. Access-list changes are made only through these endpoints.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -43,7 +43,7 @@ All endpoints below use the existing authenticated JSON envelope and CSRF header
 | POST | `/api/firewall/reviews/:id/apply` | Atomically consume an owned receipt; repeated request returns the same run |
 | GET | `/api/firewall/history?device=:id` | Latest 40 owned reviews; Admin can inspect all |
 
-Each change accepts `service`, `action` (`allow`/`block`), `protocol` (`tcp`/`udp`/`icmp`/`ip`), `source`, `destination`, and a single `port` for TCP/UDP. RouterOS adds `chain` and `position`; Cisco adds `acl` and `sequence`. Addresses are validated IPv4 CIDRs or `any`. Extra fields, raw commands/YAML, duplicate/conflicting intents and unsupported selectors are rejected. The general `/api/automation/runs` endpoint cannot submit the `firewall` job kind.
+Each change accepts `service`, `action` (`allow`/`block`), `protocol` (`tcp`/`udp`/`icmp`/`ip`), `source`, `destination`, and a single `port` for TCP/UDP. RouterOS adds `chain` and `position`; Cisco adds `acl` and `sequence`, plus optional `create_acl: true` to create a new named extended ACL (the name must not match any existing IPv4 ACL; every entry for that ACL must set the flag). Addresses are validated IPv4 CIDRs or `any`. Extra fields, raw commands/YAML, duplicate/conflicting intents and unsupported selectors are rejected. The general `/api/automation/runs` endpoint cannot submit the `firewall` job kind.
 
 Apply requires `checksum` and literal JSON `true` for `target_confirmed`, `source_confirmed`, `risk_ack`, `recovery_saved` and `no_rollback_ack`. LOCKOUT additionally requires `oob_confirmed: true`, `device_name` matching the target and `phrase: "DISCONNECT"`. Viewer execution is rejected. Operator custom/high-risk changes are rejected. Receipts bind the actor, actor session version, target connection identity, reviewed configuration fingerprint and expiry. Validation/authorization is repeated by the worker.
 
@@ -112,10 +112,10 @@ Example operation shape (substitute actual IDs and reviewed values):
 {"kind":"vlan","device_id":1,"parameters":{"operation":"create","vlan_id":42,"vlan_name":"REVIEWED_NAME","save_config":false}}
 ```
 
-`kind` is `playbook`, `vlan`, `acl` or `backup`. Playbooks require `playbook_id` and a `variables` JSON object. The server owns connection variables (`ansible_*`), `narsika_targets`, and `narsika_artifact_root`; do not pass these as user variables.
+`kind` is `playbook`, `vlan` or `backup`. `acl` is retired: new submissions, including the legacy `POST /acl` form, return HTTP 410 with code `MOVED`; use `/api/firewall`. Runs queued before the upgrade still execute. The legacy `Original/cisco_acl.yml` and `Original/mikrotik_acl.yml` playbooks can be run only by an administrator and cannot be scheduled. Playbooks require `playbook_id` and a `variables` JSON object. The server owns connection variables (`ansible_*`), `narsika_targets`, and `narsika_artifact_root`; do not pass these as user variables.
 
 Run states: `PENDING → RUNNING → SUCCESS / FAILED / CANCELLED`. Interrupted active runs become `INTERRUPTED` after a process restart. Success means Ansible exited successfully and emitted executed task events; inspect changed/skipped events to distinguish planning from device changes. Cancellation cannot undo commands already accepted by equipment.
 
 Work for the same device is dispatched in submission order; different targets can use the available workers concurrently. An operation may return to `PENDING` if a monitoring sample already holds its connection lock, but only before any network work in that attempt. This is not a retry of failed device commands. Cancelled pending work is settled even when all executor slots are occupied.
 
-Legacy route URLs remain: `/`, `/login`, `/logout`, `/change-password`, `/add-group`, `/add-device`, `/logs`, `/health/{device_id}`, `/vlan`, `/acl`, `/playbooks`, `/playbook-runner`, `/upload-playbook`, `/run-playbook`. Old form field names are adapted; all mutations now require CSRF and server permissions. No public API token or unauthenticated device execution endpoint is provided.
+Legacy route URLs remain: `/`, `/login`, `/logout`, `/change-password`, `/add-group`, `/add-device`, `/logs`, `/health/{device_id}`, `/vlan`, `/acl` (GET redirects to `/firewall.html`), `/playbooks`, `/playbook-runner`, `/upload-playbook`, `/run-playbook`. Old form field names are adapted; all mutations now require CSRF and server permissions. No public API token or unauthenticated device execution endpoint is provided.

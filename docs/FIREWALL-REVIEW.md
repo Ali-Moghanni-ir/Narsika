@@ -48,10 +48,10 @@ Staged changes are tab-local and are not silently restored across users. Changin
 | Role | Inspect / preview | Execute |
 |---|---|---|
 | Viewer | Yes; their own review history | No |
-| Operator | Yes | Scoped standard-preset changes classified Medium |
+| Operator | Yes | Standard-preset changes classified Low or Medium on RouterOS and Cisco, including creating a new unbound Cisco ACL |
 | Admin | Yes; all review history | Custom and high-risk changes, including intentional lockout with extra confirmation |
 
-Broad-source Allow, Block, custom-port presets and Cisco ACL edits are treated conservatively. The risk estimate is heuristic; it is not an exhaustive reachability analysis. These safeguards apply to this new workflow. Existing ACL and administrator-uploaded Playbook workflows are preserved, not silently restricted or transformed into a sandbox.
+Broad-source Allow, Block and custom-port presets are treated conservatively on both platforms. Entries added to an existing Cisco ACL follow the same rules as RouterOS; entries in a newly created ACL are Low risk because the ACL is not bound anywhere. The risk estimate is heuristic; it is not an exhaustive reachability analysis. The former Access lists page has been merged into this workflow; the legacy access-list playbooks remain available to administrators only.
 
 ## Result meanings
 
@@ -73,7 +73,7 @@ Polling failure in the browser does not cancel the operation. Cancelling is best
 ## Scope and deliberate limits
 
 - **Additive IPv4 filtering only.** Existing rules are visible/read-only. This release does not toggle, delete or rewrite existing device rules, resequence whole ACLs, rebind interfaces, change services, or manage NAT, routing, IPv6, bridge firewall or Ubuntu UFW. Allow/Block adds a new matching rule; it is not a claim that a service became reachable.
-- **Cisco:** existing named extended IPv4 ACLs only. Standard/numbered ACLs are not offered for modification. ACLs containing remarks are read-only because IOS may omit remark sequence numbers from its display. Running configuration changes are not automatically saved to startup. Review interface and VTY attachment points; other referencing features may not be discovered. Empty/unattached ACLs do not automatically become effective.
+- **Cisco:** existing named extended IPv4 ACLs, or a new named extended ACL. A new ACL is created unbound; binding it to an interface or line is not part of this workflow. Its recovery command removes the whole new ACL. Standard/numbered ACLs are not offered for modification. ACLs containing remarks are read-only because IOS may omit remark sequence numbers from its display. Running configuration changes are not automatically saved to startup. Review interface and VTY attachment points; other referencing features may not be discovered. Empty/unattached ACLs do not automatically become effective.
 - **RouterOS:** the snapshot is exported IPv4 filter configuration, not every dynamically generated runtime rule. First-position rules are moved to index zero, so multiple first-position additions appear in reverse execution order. The review explicitly shows that order. Existing established/related, FastTrack, jump rules and final drops can affect behavior. A last-position Allow can be shadowed. The control does not simulate packet processing or flush existing connections.
 - **No automatic timed rollback.** Backups and manual recovery instructions are available; a tested device-side scheduler/confirmed-commit mechanism is not implemented. Never depend on a disconnected server to recover its own management path.
 - **No automatic retry after ambiguity.** Read and reconcile the target before preparing another review after an interruption, partial result or loss of access. A new receipt can intentionally add another rule; it does not deduplicate all semantically equivalent existing rules.

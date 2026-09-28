@@ -326,14 +326,25 @@ def runs():
         return ok({'items':[r.public(include_output=not summary) for r in query.order_by(OperationRun.id.desc()).limit(100)]})
     return create_run(payload({'kind','device_id','playbook_id','variables','parameters'},('kind','device_id')))
 
+# Legacy access-list playbooks bypass Firewall control's review, backup and
+# verification. They stay available to administrators only and cannot be scheduled.
+LEGACY_ACL_PLAYBOOKS = ('Original/cisco_acl.yml', 'Original/mikrotik_acl.yml')
+
+
 @require('operate')
 def create_run(data):
     device=get(Device,data['device_id']);kind=data['kind']
-    return accepted(queue_run(kind,device,prepare_run(kind,device,data)))
+    return accepted(queue_run(kind,device,prepare_run(kind,device,data,actor_role=current_user.role)))
 
-def prepare_run(kind,device,data):
-    """Validate an operation without submitting it; shared with scheduled tasks."""
-    if kind not in ('playbook','vlan','acl','backup'):fail('Unsupported operation.')
+def prepare_run(kind, device, data, actor_role=None):
+    """Validate an operation without submitting it; shared with scheduled tasks.
+
+    actor_role is the interactive requester's role; scheduled tasks pass None.
+    """
+    if kind == 'acl':
+        fail('Access-list changes moved to Firewall control (/firewall.html), where every change is '
+             'reviewed, backed up and verified.', 'MOVED', 410)
+    if kind not in ('playbook','vlan','backup'):fail('Unsupported operation.')
     net.secret(device.credential);address(device.ip_address)
     if kind=='playbook':
         book=get(Playbook,data.get('playbook_id'))
@@ -342,7 +353,10 @@ def prepare_run(kind,device,data):
         variables=data.get('variables',{})
         if not isinstance(variables,dict):fail('Playbook variables must be a JSON object.')
         if any(k.startswith('ansible_') or k in ('narsika_targets','narsika_artifact_root') for k in variables):fail('Connection and artifact variables are managed by the server.')
-        if book.name in ('Original/cisco_acl.yml','Original/mikrotik_acl.yml'):
+        if book.name in LEGACY_ACL_PLAYBOOKS:
+            if actor_role != 'ADMIN':
+                fail('Legacy access-list playbooks can be run only by an administrator and cannot be '
+                     'scheduled. Use Firewall control for reviewed changes.', 'FORBIDDEN', 403)
             cleaned=validate_operation('acl',{'name':variables.get('acl_name'),'protocol':variables.get('protocol'),'action':variables.get('action'),'source':variables.get('src_ip'),'destination':variables.get('dst_ip'),'port':variables.get('port')},device)
             variables={**variables,'acl_name':cleaned['name'],'protocol':cleaned['protocol'],'action':cleaned['action'],'src_ip':cleaned['source'],'dst_ip':cleaned['destination'],'port':cleaned['port']}
         if book.name=='Original/manage-vlan.yml':
@@ -353,7 +367,7 @@ def prepare_run(kind,device,data):
     else:
         params=data.get('parameters',{})
         if not isinstance(params,dict):fail('Parameters must be a JSON object.')
-        allowed={'vlan':{'vlan_id','vlan_name','operation','save_config'},'acl':{'name','protocol','action','chain','source','destination','port','save_config'},'backup':set()}[kind]
+        allowed={'vlan':{'vlan_id','vlan_name','operation','save_config'},'backup':set()}[kind]
         if set(params)-allowed:fail('Unknown operation parameters.')
         params=validate_operation(kind,params,device)
     return params
