@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="{{ static_root }}/css/assistant.css">
+<div class="page-head">
+  <div><div class="eyebrow">NARSIKA / INTELLIGENCE</div><h1>AI assistant</h1><p>Ask about device health, failed runs, backups and the audit trail. Answers come from Narsika's own records.</p></div>
+  <div class="page-actions"><button class="btn" id="ai-new"><i data-icon="plus"></i>New conversation</button><button class="btn" id="ai-settings" data-permission="admin"><i data-icon="settings"></i>Assistant settings</button></div>
+</div>
+<div class="ai-layout">
+  <aside class="panel ai-side" aria-label="Conversations">
+    <div class="ai-model" id="ai-model"><span class="ai-orb" aria-hidden="true"></span><div><strong id="ai-model-name">Loading…</strong><small id="ai-model-state">Checking configuration</small></div></div>
+    <div class="nav-label">CONVERSATIONS</div>
+    <div id="ai-conversations" class="ai-conversations"><p class="muted ai-side-empty">No conversations yet.</p></div>
+    <div class="ai-guard"><i data-icon="shield"></i><p><strong>Read-only.</strong> The assistant reads inventory, stored health samples, runs, backups, schedules and audit events. It cannot contact or change devices.</p></div>
+  </aside>
+  <section class="panel ai-chat" aria-label="Conversation">
+    <div id="ai-banner" class="notice warning ai-banner" role="status" hidden></div>
+    <div class="ai-thread" id="ai-thread" aria-live="polite">
+      <div class="ai-welcome" id="ai-welcome">
+        <span class="ai-orb large" aria-hidden="true"></span>
+        <h2>What should we look at?</h2>
+        <p>Start with a quick analysis or ask your own question. You can write in English or Persian.</p>
+        <div class="ai-prompts" id="ai-prompts">
+          <button class="ai-prompt" data-prompt="Give me a health overview of the whole network. Which devices need attention and why?"><i data-icon="pulse"></i><strong>Network health</strong><span>Status, CPU, memory and errors across inventory</span></button>
+          <button class="ai-prompt" data-prompt="Analyse the failed or partial operation runs. What went wrong and what should I check?"><i data-icon="terminal"></i><strong>Failed operations</strong><span>Root-cause hints from recent run logs</span></button>
+          <button class="ai-prompt" data-prompt="Which devices have no recent configuration backup? Suggest a backup routine."><i data-icon="backup"></i><strong>Backup coverage</strong><span>Devices without a recent backup</span></button>
+          <button class="ai-prompt" data-prompt="Summarise the recent audit log. Highlight failed sign-ins, unusual activity and risky changes."><i data-icon="clock"></i><strong>Audit summary</strong><span>Who changed what, and anything unusual</span></button>
+        </div>
+      </div>
+    </div>
+    <form class="ai-composer" id="ai-form">
+      <textarea id="ai-input" name="message" rows="1" maxlength="4000" placeholder="Ask about your network…" aria-label="Message" dir="auto"></textarea>
+      <button class="btn primary ai-send" type="submit" id="ai-send" aria-label="Send"><i data-icon="send"></i></button>
+    </form>
+    <p class="ai-foot" id="ai-foot">AI answers can be wrong. Verify before acting on them.</p>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ static_root }}/js/assistant-markdown.js"></script><script type="module" src="{{ static_root }}/js/assistant.js"></script>{% endblock %}

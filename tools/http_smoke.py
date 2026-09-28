@@ -87,6 +87,11 @@ def main():
                 assert opener.open(base+'/static/css/schedules.css').status==200
                 assert opener.open(base+'/static/js/firewall.js').status==200
                 assert opener.open(base+'/static/css/firewall.css').status==200
+                assert opener.open(base+'/assistant.html').status==200
+                assert call('/api/assistant/config')['data']['enabled'] is False
+                assert call('/api/assistant/conversations')['data']['items']==[]
+                for asset in ('js/assistant.js','js/assistant-markdown.js','css/assistant.css'):
+                    assert opener.open(base+'/static/'+asset).status==200
                 assert opener.open(base+'/static/css/workspace.css').status==200
                 assert call('/api/bootstrap?view=inventory')['data']['audit']==[]
                 assert call('/api/automation/runs?summary=true')['data']['items']==[]

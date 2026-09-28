@@ -13,6 +13,7 @@ web=Blueprint('web',__name__)
 PAGES={'inventory':'Device inventory','discovery':'Discovery','health':'Device health','interfaces':'Interfaces','playbooks':'Playbooks','vlan':'VLAN management','backups':'Backups','audit':'Audit log','settings':'Settings'}
 PAGES['firewall']='Firewall'
 PAGES['schedules']='Scheduled tasks'
+PAGES['assistant']='AI assistant'
 DUMMY_PASSWORD_HASH=generate_password_hash('unused-password-verification',method='scrypt')
 
 def signed_in(fn):

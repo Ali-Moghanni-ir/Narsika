@@ -244,3 +244,25 @@ class RunArtifact(db.Model):
     checksum = db.Column(db.String(64), nullable=False)
     def public(self):
         return dict(id=self.id,run_id=self.run_id,name=self.name,size_bytes=self.size_bytes,checksum=self.checksum)
+
+class AssistantConversation(db.Model):
+    """A user's private conversation with the read-only AI assistant."""
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    title = db.Column(db.String(120), nullable=False)
+    created_at = db.Column(db.String(40), default=now)
+    updated_at = db.Column(db.String(40), default=now)
+    archived_at = db.Column(db.String(40))
+
+    def public(self):
+        return dict(id=self.id, title=self.title, created_at=self.created_at, updated_at=self.updated_at)
+
+class AssistantMessage(db.Model):
+    """One conversation turn. Content and tool trace are encrypted at rest."""
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('assistant_conversation.id'), nullable=False, index=True)
+    role = db.Column(db.String(20), nullable=False)
+    encrypted_content = db.Column(db.Text, nullable=False)
+    model = db.Column(db.String(120), default='')
+    elapsed_ms = db.Column(db.Integer)
+    created_at = db.Column(db.String(40), default=now)
