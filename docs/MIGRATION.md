@@ -4,11 +4,11 @@
 
 This feature adds `scheduled_task`, `schedule_occurrence` and `schedule_run` tables through the existing idempotent table creation path. Before creating them for an existing database, migration writes/verifies `narsika.db.before-schedules.sqlite3.enc` with the installation's original encryption key. Existing core schema version 2, columns and records are unchanged; no table is dropped and no scheduled data is seeded.
 
-Before downgrading, pause schedules in the new application, finish/cancel its queue, preserve a full data/configuration backup and stop the service. Older application code does not dispatch or display schedules. Preserve the extra tables and use the matching new retention tool, which keeps referenced operation runs. The encrypted snapshot can be restored into a separate offline path with `tools/restore_snapshot.py`; it does not contain writes made after that snapshot. See [Scheduled Tasks](SCHEDULES-FA.md) for operating boundaries.
+Before downgrading, pause schedules in the new application, finish/cancel its queue, preserve a full data/configuration backup and stop the service. Older application code does not dispatch or display schedules. Preserve the extra tables and use the matching new retention tool, which keeps referenced operation runs. The encrypted snapshot can be restored into a separate offline path with `tools/restore_snapshot.py`; it does not contain writes made after that snapshot. See [Scheduled tasks](SCHEDULES.md) for operating boundaries.
 
 ## Fresh installation
 
-The release contains no device database, telemetry or generated inventory. Run the native or Docker installer in INSTALLATION.md. configure.py generates private keys only; tools/bootstrap.py generates the initial random administrator password in a terminal. The initial administrator must change it. Preserve encryption keys.
+The release contains no device database, telemetry or generated inventory. Run the native or Docker installer described in [Installation](INSTALLATION.md). configure.py generates private keys only; tools/bootstrap.py generates the initial random administrator password in a terminal. The initial administrator must change it. Preserve encryption keys.
 
 ## Moving an existing installation to native paths
 
@@ -57,4 +57,4 @@ Stop traffic and finish or cancel active operations before replacing code. A ful
 
 RUNNING jobs become INTERRUPTED on process restart. Queued jobs record their target connection identity; an older pending job without that identity or a job whose target changed fails with TARGET_CHANGED and needs reviewed resubmission. Commands already sent are not rolled back by cancellation. Private abandoned job directories are cleaned after the worker lock is acquired.
 
-For consistent SQLite snapshots use tools/snapshot.py, then protect the complete stopped installation (database, encrypted files, uploads, known_hosts and keys). See OPERATIONS.md for optional encrypted retention and HTTPS deployment.
+For consistent SQLite snapshots use tools/snapshot.py, then protect the complete stopped installation (database, encrypted files, uploads, known_hosts and keys). See [Operations](OPERATIONS.md) for optional encrypted retention and HTTPS deployment.

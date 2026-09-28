@@ -1,6 +1,19 @@
 # Narsika API
 
-## Scheduled Tasks
+Narsika's JSON API is the same one its web interface uses. It is an internal, session-based API: there are no API tokens, and every call needs a signed-in browser session.
+
+**Conventions**
+
+- Authentication: same-origin session cookie from `/login`.
+- CSRF: every POST, PATCH and DELETE (including login) sends `X-CSRFToken`, taken from the page's `csrf-token` meta tag.
+- Success: `{"data": {...}, "meta": {}}`; collections use `data.items`.
+- Errors: `{"error": {"code", "message", "fields", "request_id"}}` with a non-2xx status. `X-Request-ID` matches `request_id`.
+- Unknown JSON fields are rejected.
+- Requests from outside `NARSIKA_WEB_NETWORKS` receive `403 SOURCE_NOT_ALLOWED`.
+
+**Sections:** [Scheduled tasks](#scheduled-tasks) · [Firewall](#firewall) · [Core API](#core-api)
+
+## Scheduled tasks
 
 All mutations require the existing authenticated session, CSRF header and Operator/Admin role. Operators manage their own tasks; administrators manage all. Viewers can read summaries and history. No schedule is created by installation.
 
@@ -30,7 +43,7 @@ Occurrence status is `QUEUED`, `RUNNING`, `SUCCESS`, `FAILED`, `PARTIAL`, `CANCE
 
 Run now can execute a paused task after explicit confirmation, with current authorization checks. Pause does not cancel already submitted work. Edit changes revision, so still-queued runs from an older revision fail preflight; already applied commands are not undone. Direct Firewall review/apply is outside this API. `/api/bootstrap?view=schedules` is available for the new workspace.
 
-## Firewall Control Preview
+## Firewall
 
 All endpoints below use the existing authenticated JSON envelope and CSRF header on POST. This is an additive internal API. Access-list changes are made only through these endpoints.
 
@@ -47,13 +60,13 @@ Each change accepts `service`, `action` (`allow`/`block`), `protocol` (`tcp`/`ud
 
 Apply requires `checksum` and literal JSON `true` for `target_confirmed`, `source_confirmed`, `risk_ack`, `recovery_saved` and `no_rollback_ack`. LOCKOUT additionally requires `oob_confirmed: true`, `device_name` matching the target and `phrase: "DISCONNECT"`. Viewer execution is rejected. Operator custom/high-risk changes are rejected. Receipts bind the actor, actor session version, target connection identity, reviewed configuration fingerprint and expiry. Validation/authorization is repeated by the worker.
 
-Review returns `{id, checksum, expires_at, status, created_at, run_id, plan}` inside `data`; detail also contains `run`. Apply returns `{review_id, run, reused}` with HTTP 202 for first acceptance or 200 for an already-queued receipt. Common errors include `CONFIRMATION_REQUIRED`, `STALE_STATE`, `REVIEW_EXPIRED`, `TARGET_CHANGED`, `INVALID_REVIEW`, `FORBIDDEN`, `BUSY` and `CAPABILITY_UNAVAILABLE`. See [the review guide](FIREWALL-REVIEW.md) for status meanings and non-atomic execution/recovery boundaries.
+Review returns `{id, checksum, expires_at, status, created_at, run_id, plan}` inside `data`; detail also contains `run`. Apply returns `{review_id, run, reused}` with HTTP 202 for first acceptance or 200 for an already-queued receipt. Common errors include `CONFIRMATION_REQUIRED`, `STALE_STATE`, `REVIEW_EXPIRED`, `TARGET_CHANGED`, `INVALID_REVIEW`, `FORBIDDEN`, `BUSY` and `CAPABILITY_UNAVAILABLE`. See the [Firewall guide](FIREWALL.md) for status meanings and recovery boundaries.
 
-## Existing API
+## Core API
 
 ### Compact workspace reads and worker state
 
-The default `GET /api/bootstrap` response is unchanged. An optional `view` accepts a current page ID (`inventory`, `health`, `interfaces`, `discovery`, `playbooks`, `vlan`, `acl`, `backups`, `audit`, `settings` `firewall` or `schedules` as registered by the server). Page-specific responses retain inventory and metadata but leave `audit` empty; audit history is still available from `/api/audit`. Administrators receive the full account list only for the settings view; other page views include only the current account. Unknown views return validation error 422. These compact reads do not change authorization.
+The default `GET /api/bootstrap` response is unchanged. An optional `view` accepts a current page ID (`inventory`, `health`, `interfaces`, `discovery`, `playbooks`, `vlan`, `backups`, `audit`, `settings`, `firewall` or `schedules` as registered by the server). Page-specific responses retain inventory and metadata but leave `audit` empty; audit history is still available from `/api/audit`. Administrators receive the full account list only for the settings view; other page views include only the current account. Unknown views return validation error 422. These compact reads do not change authorization.
 
 `GET /api/automation/runs?summary=true` omits the `output` field and avoids loading retained output/encrypted parameters for history rows. The default history response and `GET /api/automation/runs/{id}` retain their existing full contract. Nothing is removed from storage.
 
