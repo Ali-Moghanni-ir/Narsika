@@ -1,0 +1,12 @@
+---
+- name: Apply immutable Narsika firewall review
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Apply reviewed ACL entries in execution order
+      ansible.builtin.include_tasks: cisco-entry.yml
+      loop: "{{ firewall_items }}"
+      loop_control:
+        loop_var: firewall_item
+        label: "{{ firewall_item.label }}"

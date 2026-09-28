@@ -1,5 +1,9 @@
 # Verification report — Narsika Public Beta, 2026-09-10
 
+Current dependency correction: [Ansible dependency verification](ANSIBLE-DEPENDENCIES.md). The [Scheduled Tasks guide](SCHEDULES-FA.md) remains applicable. All counts below are historical.
+
+> Historical baseline report. For the **current unpublished package**, use [Workspace review and validation](WORKSPACE-REVIEW-FA.md). The earlier [Rebuild validation](REBUILD-REVIEW-FA.md) and [Firewall validation](FIREWALL-VALIDATION.md) are retained. Results below describe earlier work and do not establish new browser, OS or firmware acceptance.
+
 Source: the Narsika Public Beta source published on the `main` branch. The evidence below records the application, packaging and installer verification completed for this release.
 
 | Check | Result | Evidence and boundary |

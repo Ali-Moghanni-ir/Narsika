@@ -1,0 +1,94 @@
+Narsika Ansible correction — executed evidence, 2026-09-14
+Source: current local narsika-firewall-review package. No GitHub publication.
+
+Runtime A: Python 3.12.14, isolated backend-venv
+Runtime B: Python 3.14.7, newly created ansible-fix-venv314
+Both: ansible-core 2.20.9; resolvelib 1.2.1; packaging 26.3
+The ansible community meta-package is not installed.
+ansible-pylibssh 1.4.0 and the existing netcommon known-hosts patch retained.
+
+DEPENDENCIES
+Python 3.14: python -m pip install -r requirements-dev.txt
+  PASS; all pinned dependencies installed in the new virtual environment.
+Python 3.12: updated only ansible-core from a downloaded official 2.20.9 wheel;
+  remaining pinned application dependencies already existed in this environment.
+python -m pip check
+  PASS on both: No broken requirements found.
+python --version; ansible --version; ansible-galaxy --version;
+python -m pip show ansible-core resolvelib packaging
+  PASS on both; versions match above.
+
+COLLECTION INSTALLATION
+Official Galaxy v3 metadata retrieved for all four pinned versions.
+Official artifact downloads and SHA256 checks: PASS for all four.
+Python 3.12: python tools/install_collections.py --collections-path <fresh-root>
+  PASS; online artifact downloads, offline local Galaxy installation; exit 0.
+Python 3.14: python tools/install_collections.py --artifact-dir <verified-artifacts>
+  PASS; no artifact downloads, install into this venv's collections root; exit 0.
+An additional Python 3.12 offline artifact installation also passed.
+Effective Galaxy command:
+  <venv>/bin/ansible-galaxy collection install --offline --no-cache --no-deps
+  -vvv -r <temporary-local-artifact-requirements.yml> -p <private-staging-root>
+  PASS; each pinned collection reported installed successfully.
+  No "is not part of the configured" collection-path warning.
+  No KeyError or unsupported-controller warning in the installation logs.
+
+ansible-config dump --only-changed
+  PASS on both; explicit release config and exactly one local collection root.
+  COLLECTIONS_PATHS(env: ANSIBLE_COLLECTIONS_PATH) = [<selected collection root>]
+  COLLECTIONS_SCAN_SYS_PATH(env: ANSIBLE_COLLECTIONS_SCAN_SYS_PATH) = False
+  GALAXY_CACHE_DIR and ANSIBLE_HOME point to isolated attempt/job state.
+  Neither /root/.ansible/collections nor /usr/share/ansible/collections is loaded.
+ansible-galaxy collection list --format json
+  PASS on both; only <selected root>/ansible_collections appears:
+  ansible.netcommon 8.6.2
+  ansible.utils 6.1.0
+  cisco.ios 11.5.0
+  community.routeros 3.21.0
+python tools/install_collections.py --verify-only --collections-path <root>
+  PASS; pinned runtime, manifests, config and vendor/connection plugin loading.
+
+EXECUTION
+python tools/check_playbooks.py
+  PASS on Python 3.12 and 3.14: all 18 syntax checks.
+  Includes 10 product playbooks, 6 preserved playbooks and 2 internal firewall plays.
+ansible-playbook -i localhost, <temporary-local-assertion.yml>
+  PASS on both: actual ansible.netcommon.vlan_parser([100,101,102,200])
+  returned ['100-102,200']; ok=1, changed=0, unreachable=0, failed=0.
+  No device was contacted or modified.
+
+REGRESSION
+python -m pytest -q -rs --junitxml=<isolated-report>
+  Python 3.12.14: 278 passed, 1 skipped in 83.78 seconds.
+  Python 3.14.7: 278 passed, 1 skipped in 82.73 seconds.
+  Skip: this environment prohibits Unix sockets required by the complete
+  Ansible network_cli integration fixture (tests/test_transport.py).
+  Includes 25 new Ansible dependency cases and existing scheduler/job/rollback/
+  vendor/SSH/database/API tests. No external device or privileged host mutation.
+  The first pass detected excluded Docker helper COPY inputs. .dockerignore was
+  corrected; targeted tests and both final complete suites passed afterward.
+
+python tools/http_smoke.py (Python 3.14)
+  PASS live Gunicorn HTTP, random bootstrap, forced password change,
+  12 product pages including Firewall/Schedules, API/assets, logo, empty inventory,
+  persisted writes/schedule across restart, and password-free logs.
+python tools/validate_package.py (Python 3.12)
+  PASS portable package paths, Python AST, 13 JS modules, Linux shell syntax,
+  Compose volume mapping, configuration preservation, Gunicorn factory/config.
+
+DOCKER / HOST BOUNDARIES
+Official Docker Registry lookup:
+  python:3.12.14-slim-bookworm manifest digest verified as
+  sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
+Docker COPY/build-context regression: PASS (static; not an image build).
+Docker build/Compose runtime: NOT RUN; Docker is unavailable here.
+Fresh Ubuntu 24.04/26.04 apt/systemd/UFW installation: NOT RUN.
+Windows/WSL installer runtime: NOT RUN.
+Python 3.13 execution: NOT RUN; official support and CI matrix included.
+Real Cisco IOS / RouterOS firmware changes and complete network_cli: LAB_REQUIRED.
+The original server's initial HTTP failure/cache history: unavailable.
+
+The archive packager verifies ZIP CRC and every MANIFEST.sha256 entry.
+Test fixtures, runtime databases, caches, venvs and private install logs are not
+part of the source archive. Artifact archives are not bundled; their exact
+official URLs and SHA256 values are committed in Playbooks/collections.lock.json.

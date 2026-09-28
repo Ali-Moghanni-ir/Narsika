@@ -9,11 +9,13 @@ import re
 import secrets
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.request
+from werkzeug.security import check_password_hash
 from terminal_test import run_terminal
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -69,24 +71,45 @@ def main():
             try:
                 process=start()
                 opener,call=login(password,True)
-                call('/change-password',{'current':password,'password':changed,'confirm':changed})
+                assert call('/change-password',{'current':password,'password':changed,'confirm':changed})['data']['redirect']=='/'
+                assert call('/api/session')['data']['user']['must_change_password'] is False
+                with sqlite3.connect(data/'narsika.db') as connection:
+                    stored=connection.execute('SELECT password_hash FROM user WHERE username=?',('admin',)).fetchone()[0]
+                    assert check_password_hash(stored,changed),'Changed password must persist before restart.'
                 assert call('/api/devices')['data']['items']==[]
                 assert call('/api/system')['data']['worker_available'] is True
-                for page in ('index','settings','playbooks','health','interfaces','vlan','acl','discovery','audit','backups'):
+                for page in ('index','settings','playbooks','health','interfaces','vlan','acl','discovery','audit','backups','firewall','schedules'):
                     assert opener.open(base+'/'+page+'.html').status==200
+                assert call('/api/firewall/capabilities')['data']['automatic_rollback'] is False
+                assert call('/api/firewall/history')['data']['items']==[]
+                assert call('/api/schedules')['data']['items']==[]
+                assert opener.open(base+'/static/js/schedules.js').status==200
+                assert opener.open(base+'/static/css/schedules.css').status==200
+                assert opener.open(base+'/static/js/firewall.js').status==200
+                assert opener.open(base+'/static/css/firewall.css').status==200
+                assert opener.open(base+'/static/css/workspace.css').status==200
+                assert call('/api/bootstrap?view=inventory')['data']['audit']==[]
+                assert call('/api/automation/runs?summary=true')['data']['items']==[]
                 assert opener.open(base+'/static/img/narsika-relay.png').status==200
-                item=call('/api/devices',{'name':'HTTP test record','ip_address':'10.255.254.253','platform':'cisco'})['data']
+                profile=call('/api/credentials',{'name':'HTTP fixture profile','username':'fixture-user','kind':'ssh','password':'fixture-only-device-secret'})['data']
+                item=call('/api/devices',{'name':'HTTP test record','ip_address':'10.255.254.253','platform':'cisco','credential_id':profile['id']})['data']
                 assert item['health'] is None
+                review=call('/api/schedules/preview',{'name':'HTTP paused schedule','kind':'backup','device_ids':[item['id']],'enabled':False,'rule':{'frequency':'daily','timezone':'Asia/Tehran','start_at':'2090-01-01T02:00'}})['data']
+                task=call('/api/schedules',{'review_token':review['review_token']})['data']
+                assert not task['enabled']
                 stop(process);process=None
                 process=start()
                 opener,call=login(changed,False)
                 assert [row['id'] for row in call('/api/devices')['data']['items']]==[item['id']]
+                restored=call('/api/schedules')['data']['items']
+                assert len(restored)==1 and restored[0]['id']==task['id'] and not restored[0]['enabled']
+                assert call('/api/schedules/'+str(task['id'])+'/history')['data']['items']==[]
                 stop(process);process=None
             finally:
                 if process is not None and process.poll() is None:stop(process)
         logdata=(data/'server.log').read_bytes()
         assert password.encode() not in logdata and changed.encode() not in logdata
-        print('PASS live Gunicorn HTTP, random bootstrap, forced change, 10 product pages, logo, empty inventory, persistent write/restart and password-free logs')
+        print('PASS live Gunicorn HTTP, random bootstrap, forced change, 12 product pages including Firewall/Schedules, API/assets, logo, empty inventory, persistent write/restart and password-free logs')
 
 
 if __name__=='__main__':main()
