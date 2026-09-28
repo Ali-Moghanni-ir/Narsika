@@ -14,3 +14,15 @@ tools/*
 !tools/restore_snapshot.py
 !tools/snapshot.py
 !tools/bootstrap.py
+!tools/dependencies.py
+!tools/ansible_environment.py
+!tools/install_collections.py
+pytest-of-*
+.pytest_cache
+node_modules
+*.log
+*.tar.gz
+*.db
+*.db-wal
+*.db-shm
+MANIFEST.sha256

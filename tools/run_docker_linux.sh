@@ -82,7 +82,13 @@ fi
 "${docker_cmd[@]}" compose version
 "${docker_cmd[@]}" compose up --help | grep -q -- --wait-timeout || { echo 'An older user-level Compose plugin is shadowing the installed plugin. Update that plugin and rerun.' >&2; exit 1; }
 # Build first: configuration generation runs inside the image, without host Python.
-"${docker_cmd[@]}" build -t narsika:local .
+build_args=()
+for setting in NARSIKA_PIP_INDEX_URL NARSIKA_PIP_TIMEOUT NARSIKA_PIP_RETRIES; do
+  if [[ -n ${!setting:-} ]]; then build_args+=(--build-arg "$setting=${!setting}"); fi
+done
+echo 'Building Narsika with cached dependencies. First installation still downloads the base image, Python packages and Ansible collections.'
+echo 'After installation, use docker compose up -d --no-build to start without running setup again.'
+"${docker_cmd[@]}" build --progress=plain "${build_args[@]}" -t narsika:local .
 terminal=(); [[ -t 0 && -t 1 ]] && terminal=(-it)
 "${docker_cmd[@]}" run --rm "${terminal[@]}" --network none --user "$(id -u):$(id -g)" -v "$PWD:/setup" --entrypoint python narsika:local /setup/configure.py
 "${docker_cmd[@]}" run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD:/setup:ro" --entrypoint python narsika:local /setup/configure.py --check
