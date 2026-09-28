@@ -62,7 +62,7 @@ def backup():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
-    for name in ('status', 'start', 'stop', 'restart', 'logs', 'backup'):
+    for name in ('status', 'start', 'stop', 'restart', 'logs', 'backup', 'doctor'):
         sub.add_parser(name)
     reset = sub.add_parser('reset-admin')
     reset.add_argument('username')
@@ -71,7 +71,10 @@ def main():
     args = parser.parse_args()
     if os.geteuid() != 0:
         raise SystemExit('Use sudo narsika-admin.')
-    if args.command == 'backup':
+    if args.command == 'doctor':
+        from doctor_native import main as diagnose
+        raise SystemExit(diagnose())
+    elif args.command == 'backup':
         backup()
     elif args.command == 'logs':
         run('journalctl', '-u', 'narsika', '-n', '100', '--no-pager')

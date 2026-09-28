@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "ansible_core": "2.20.9",
+  "python_minors": [
+    "3.12",
+    "3.13",
+    "3.14"
+  ],
+  "collections": [
+    {
+      "name": "ansible.netcommon",
+      "version": "8.6.2",
+      "url": "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/ansible-netcommon-8.6.2.tar.gz",
+      "sha256": "4040e782c26ddb97979e03a07f4894a2dc82f59c1e71e7f5c5cb2d5c6a31628a",
+      "dependencies": {
+        "ansible.utils": ">=3.0.0"
+      }
+    },
+    {
+      "name": "ansible.utils",
+      "version": "6.1.0",
+      "url": "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/ansible-utils-6.1.0.tar.gz",
+      "sha256": "e29255d2a41e90b4de68524df4124100b51a0525167459e5e2def00deed97799",
+      "dependencies": {}
+    },
+    {
+      "name": "cisco.ios",
+      "version": "11.5.0",
+      "url": "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/cisco-ios-11.5.0.tar.gz",
+      "sha256": "6259d484919ed23a272c3bbc90a1e0cc4d54945119deff617f9cfe1362e630cc",
+      "dependencies": {
+        "ansible.netcommon": ">=8.5.2"
+      }
+    },
+    {
+      "name": "community.routeros",
+      "version": "3.21.0",
+      "url": "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/community-routeros-3.21.0.tar.gz",
+      "sha256": "9d443c13f21e9caebeb9d3e5abc0425deb7a0a95348fde4146a71bb358560fe7",
+      "dependencies": {
+        "ansible.netcommon": ">=1.0.0"
+      }
+    }
+  ]
+}

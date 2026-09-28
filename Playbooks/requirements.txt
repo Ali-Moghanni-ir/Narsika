@@ -1,2 +1,2 @@
-ansible-core>=2.18,<2.20
-paramiko>=3.5,<4.0
+# Use the same pinned runtime as the application and native/Docker installers.
+-r ../requirements.txt

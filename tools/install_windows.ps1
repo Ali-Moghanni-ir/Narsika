@@ -145,7 +145,14 @@ function Start-Narsika {
         if (-not $script:Docker) { throw 'Docker CLI was not found after installation. Complete the installer and rerun.' }
         Start-LinuxEngine
         Invoke-Docker -Arguments @('compose', 'version')
-        Invoke-Docker -Arguments @('build', '-t', 'narsika:local', '.')
+        $buildArguments = @('build', '--progress=plain')
+        foreach ($setting in @('NARSIKA_PIP_INDEX_URL', 'NARSIKA_PIP_TIMEOUT', 'NARSIKA_PIP_RETRIES')) {
+            $value = [Environment]::GetEnvironmentVariable($setting)
+            if ($value) { $buildArguments += @('--build-arg', "$setting=$value") }
+        }
+        Write-Host 'Building with cached dependencies. First setup still downloads the base image, packages and Ansible collections.'
+        Write-Host 'For later starts use docker compose up -d --no-build; setup is not required on every launch.'
+        Invoke-Docker -Arguments ($buildArguments + @('-t', 'narsika:local', '.'))
         $terminal = @()
         if (-not [Console]::IsInputRedirected) { $terminal = @('-it') }
         $configuration = @('run', '--rm') + $terminal + @('--network', 'none', '--user', '0:0', '--mount', "type=bind,source=$project,target=/setup", '--entrypoint', 'python', 'narsika:local', '/setup/configure.py')

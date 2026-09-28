@@ -73,10 +73,14 @@ esac
         for name,body in stubs.items():
             target=programs/name;target.write_text('#!/bin/bash\n'+body+'\n');target.chmod(0o755)
     log=tmp_path/'commands' 
-    result=subprocess.run([str(programs/'bash'),str(project/'run_linux.sh'),'--docker'],env={**os.environ,'PATH':str(programs),'FAIL_STEP':fail_step,'INSTALL_LOG':str(log),'INSTALL_BIN':str(programs)},capture_output=True,text=True)
+    result=subprocess.run([str(programs/'bash'),str(project/'run_linux.sh'),'--docker'],env={**os.environ,'PATH':str(programs),'FAIL_STEP':fail_step,'INSTALL_LOG':str(log),'INSTALL_BIN':str(programs),'NARSIKA_PIP_INDEX_URL':'https://mirror.example.org/simple/','NARSIKA_PIP_TIMEOUT':'45','NARSIKA_PIP_RETRIES':'2'},capture_output=True,text=True)
     assert (result.returncode==0)==successful,result.stdout+result.stderr
     assert ('Narsika is healthy' in result.stdout)==successful
     commands=log.read_text()
+    assert '--build-arg NARSIKA_PIP_INDEX_URL=https://mirror.example.org/simple/' in commands
+    assert '--build-arg NARSIKA_PIP_TIMEOUT=45' in commands
+    assert '--build-arg NARSIKA_PIP_RETRIES=2' in commands
+    assert 'build --progress=plain' in commands
     if missing_engine:assert 'package install -y docker-ce' in commands
     if fail_step=='build':assert 'run --rm' not in commands
     if fail_step=='configuration':assert 'compose up -d' not in commands

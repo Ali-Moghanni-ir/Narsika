@@ -17,17 +17,17 @@ fi
 if [[ ! -t 0 || ! -t 1 ]]; then echo 'Run this installer in an interactive terminal.' >&2; exit 1; fi
 if [[ $EUID -ne 0 ]]; then
   command -v sudo >/dev/null || { echo 'Run as root or install sudo.' >&2; exit 1; }
-  exec sudo --preserve-env=SSH_CONNECTION bash "$PWD/tools/run_native_linux.sh"
+  exec sudo --preserve-env=SSH_CONNECTION,NARSIKA_PIP_INDEX_URL,NARSIKA_PIP_TIMEOUT,NARSIKA_PIP_RETRIES,NARSIKA_COLLECTION_ARTIFACT_DIR,PIP_INDEX_URL,PIP_DEFAULT_TIMEOUT,PIP_RETRIES,HTTPS_PROXY,HTTP_PROXY,NO_PROXY,https_proxy,http_proxy,no_proxy bash "$PWD/tools/run_native_linux.sh"
 fi
 # Do not depend on the invoking user's PATH for root-owned system utilities.
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 required_programs=(ssh ping ufw runuser ss useradd hostname)
 missing=0
-python3 -c 'import venv, ensurepip, ctypes, sys; assert sys.version_info >= (3, 12); ctypes.CDLL("libssh.so.4")' 2>/dev/null || missing=1
+python3 -c 'import venv, ensurepip, ctypes, sys; from zoneinfo import ZoneInfo; assert sys.version_info >= (3, 12); ctypes.CDLL("libssh.so.4"); ZoneInfo("UTC"); ZoneInfo("Asia/Tehran")' 2>/dev/null || missing=1
 for program in "${required_programs[@]}"; do command -v "$program" >/dev/null || missing=1; done
 if [[ $missing -eq 1 ]]; then
   apt-get update
-  apt-get install -y python3 python3-venv openssh-client iputils-ping libssh-4 ca-certificates ufw util-linux iproute2 passwd hostname
+  apt-get install -y python3 python3-venv openssh-client iputils-ping libssh-4 ca-certificates tzdata ufw util-linux iproute2 passwd hostname
 fi
 for program in "${required_programs[@]}"; do
   command -v "$program" >/dev/null || {
@@ -35,8 +35,8 @@ for program in "${required_programs[@]}"; do
     exit 1
   }
 done
-python3 -c 'import venv, ensurepip, ctypes, sys; assert sys.version_info >= (3, 12); ctypes.CDLL("libssh.so.4")' 2>/dev/null || {
-  echo 'Python 3.12 or newer with venv and libssh is required, but Ubuntu packages did not provide a usable runtime.' >&2
+python3 -c 'import venv, ensurepip, ctypes, sys; from zoneinfo import ZoneInfo; assert (3, 12) <= sys.version_info < (3, 15); ctypes.CDLL("libssh.so.4"); ZoneInfo("UTC"); ZoneInfo("Asia/Tehran")' 2>/dev/null || {
+  echo 'Python 3.12, 3.13 or 3.14 with venv, libssh and tzdata is required by the pinned Ansible runtime.' >&2
   exit 1
 }
 exec python3 tools/install_native.py
