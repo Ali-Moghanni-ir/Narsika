@@ -1,5 +1,55 @@
 # Repair release change register
 
+## Local Scheduled Tasks preview — 2026-09-14
+
+- Add Schedules navigation and a desktop workspace with search/filter, actual overview metrics, four-step creation/review, fixed multi-device targets, pause/resume, idempotent Run now and paginated occurrence history.
+- Add a persisted scheduler to the existing exclusive dispatcher: once, elapsed-hour interval, daily and weekly rules using IANA time zones. No browser, cron, separate process, Redis or external scheduler service is required.
+- Add `ScheduledTask`, `ScheduleOccurrence` and `ScheduleRun` tables. Before extending an existing installation, preserve a verified encrypted `narsika.db.before-schedules.sqlite3.enc` snapshot. Existing models, core schema version, IDs, routes and records remain unchanged.
+- Add encrypted 10-minute save-review tokens bound to the actor/session and task revision; preserve encrypted variables and connection fingerprints. Revalidate current owner permissions, target identities and Playbook content at dispatch and execution.
+- Atomically reserve occurrence identity, target links, queue entries and next due time. Skip overlapping, past-due and insufficient-capacity occurrences with explicit history. Do not replay failed or ambiguous device commands. Keep runs referenced by schedule history out of offline retention selection.
+- Extract the existing operation validation into a reusable function; ordinary interactive operation contracts are preserved.
+- Add the `tzdata` OS package/check to native installation and Docker. Python requirements, Windows launcher interface, service settings and volumes are unchanged; Docker installs timezone data noninteractively.
+- Add scheduler regression coverage and expand actual HTTP validation to 12 product pages. Current scope, verification and rollback instructions are in [SCHEDULES-FA.md](SCHEDULES-FA.md).
+
+No existing file, Playbook, route, model, feature or data was deleted. No real-device command, host firewall change, privileged installation or external publication occurred.
+
+## Local workspace and execution refinement — 2026-09-14
+
+- Dispatch queued work in device order while using free workers for other targets. Defer connection-lock contention only before device contact; never automatically replay an ambiguous or partially applied operation. Honor cancellation at execution entry.
+- Check the dispatcher thread in deployment health and reject new jobs when the required worker is stopped. Expose actual pending/running counts in connection settings.
+- Eager-load inventory group/credential metadata. Add optional compact bootstrap views and summary-only run history without removing the existing full API contracts or retained logs.
+- Keep credential ciphertext stable for metadata-only edits; include usernames in monitoring sample/cache identity and invalidate only affected target counters.
+- Refine the existing dark/gold desktop shell, sign-in composition, cards, empty states and horizontal table scrolling. Add real-data first-connection guidance and workflow shortcuts; preserve the accepted logo.
+- Keep confirmations open while submitting, suppress repeated acceptance, retain inline errors, distinguish ambiguous network failures and preserve temporary account passwords if list refresh fails. Backend role rules remain unchanged.
+- Display actual execution stages, restore a selected run after refresh, respect owner/admin cancellation, pause execution polling in hidden pages, and suppress stale firewall/settings responses.
+- Add regression coverage in `tests/test_refinement.py` and `tests/frontend_core.test.cjs`; expand the real HTTP smoke check. Document current evidence and acceptance gates in [WORKSPACE-REVIEW-FA.md](WORKSPACE-REVIEW-FA.md).
+
+No existing file, route, model, Playbook or capability was deleted or renamed. No runtime dependency, schema migration, configuration-key change or infrastructure service was added. No real-device command, account reset, privileged host installation or external publication occurred. Earlier Docker cache/mirror and native recovery improvements remain included; this pass does not claim a measured Docker build speed-up.
+
+## Local Docker build optimization — 2026-09-13
+
+Enable a BuildKit pip download cache, retain dependency-first layer ordering, separate Galaxy installation from the patch step, and exclude temporary build-context files. Linux and Windows Docker launchers pass explicit `NARSIKA_PIP_*` build settings and display plain build progress. Python pins, application behavior, persistent volumes and bootstrap are unchanged. First builds still need network access; ordinary starts use `docker compose up -d --no-build`. Docker/Windows runtime and speed measurements were not available in the authoring environment. No image or GitHub change was published. See INSTALLATION.md for mirror settings and boundaries.
+
+## Local rebuild and recovery pass — 2026-09-12
+
+- Native installer: `ufw prepend` instead of numeric insertion; firewall before service activation; fix previous-release variable shadowing; preserve failed first-install launch files for diagnosis; reject existing data without its key configuration.
+- Downloads: explicit single HTTPS index, configurable timeout/retries, mirror retry in the same staged release, `pip check`, non-installing resolution command. Pins unchanged. Sudo preserves the supported index/proxy variables; global pip config and insecure/extra-index overrides are intentionally excluded.
+- Add `sudo narsika-admin doctor`, a diagnostic command that does not alter service, data, accounts or firewall configuration.
+- Jobs: capture/recheck session version and credential revision; forced-password-change accounts cannot execute queued work. Older queued target identities with credentials may fail closed and require resubmission after upgrade. History remains intact.
+- Firewall: conservatively classify possible outbound SSH reply blocking; distinguish Cisco receipt matches from RouterOS device tags; disable ambiguous Cisco ACL choices; prevent closing/changing target while Apply is submitted; keep invalid staged edits open.
+- Inventory/VLAN: correct telemetry counter invalidation key; ignore stale VLAN success/error responses after target switching.
+- Add failure-injection, account/credential, UI response-order and diagnostic regressions; update installation and Persian review guidance.
+
+No existing file, route, model, Playbook or capability was deleted or renamed. No schema migration, runtime dependency or infrastructure service was added. No password reset, real-device command, privileged host install, GitHub commit or push occurred. Current evidence and remaining acceptance gates are in [REBUILD-REVIEW-FA.md](REBUILD-REVIEW-FA.md).
+
+## Local Firewall Control preview — 2026-09-12
+
+This local review adds the firewall page, scoped CSS/JS, `/api/firewall` Blueprint, encrypted `FirewallReview` model, per-vendor intent compiler, immutable confirmation workflow, mandatory backup/fresh verification and two fixed internal Ansible plays. The existing runner and queue are extended, not replaced. Package and HTTP/Ansible checks now cover the new assets and plays. Offline retention preserves runs referenced by firewall receipts.
+
+No old source file, model, route, Playbook or feature is removed or renamed by this change. No dependency, infrastructure service or destructive migration is added. No GitHub commit/push is performed. The previous local worktree is kept intact; this preview is built in a separate source copy. See [Firewall review guide](FIREWALL-REVIEW.md) for scope, downgrade caveats and lab acceptance.
+
+## Earlier release history
+
 The current 2026-09-08 native release is documented in RELEASE-NATIVE.md. The entries below describe earlier repairs and remain as history. Installation, bootstrap, source-access and logo decisions in the newer release document take precedence.
 
 The owner authorized all necessary project repairs on 2026-09-07. Locked Flask/Jinja/custom CSS/Vanilla JS, SQLite and on-demand monitoring decisions remain in effect.
