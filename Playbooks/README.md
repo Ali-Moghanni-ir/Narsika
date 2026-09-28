@@ -1,32 +1,44 @@
-# پلی‌بوک‌های Narsika
+# Narsika Playbook library
 
-این پوشه دقیقاً ۱۰ پلی‌بوک جدید و مستقل دارد: ۵ فایل در `Cisco` و ۵ فایل در `MikroTik`. هر فایل بدون `include_tasks` یا وابستگی به فایل YAML مشترک نوشته شده است. dependencyهای اجرایی در `requirements` و فایل‌های متغیر در `examples/<vendor>/` هستند.
+This folder holds the Ansible Playbooks that Narsika ships and lists in **Playbooks**: five for Cisco, five for MikroTik, and the six original Playbooks from the first version of the project. You can run them from the web interface or directly with `ansible-playbook`.
 
-## فهرست کاربردها
+## Bundled Playbooks
 
-| Vendor / فایل | کاربرد | رفتار روی تجهیز |
+| File | Purpose | Effect on the device |
 |---|---|---|
-| `Cisco/01_health_report.yml` | گزارش نسخه، IP، CPU و Interface | فقط خواندن؛ گزارش JSON روی کنترلر |
-| `Cisco/02_backup_running_config.yml` | بکاپ کامل running-config | فقط خواندن؛ فایل محلی با دسترسی محدود |
-| `Cisco/03_ensure_vlan.yml` | ایجاد VLAN یا اصلاح نام آن | فقط VLAN انتخاب‌شده؛ بدون تغییر عضویت پورت |
-| `Cisco/04_configure_access_port.yml` | تنظیم access VLAN و توضیح یک پورت | بررسی L2، وجود VLAN و جلوگیری از تبدیل ناخواستهٔ trunk |
-| `Cisco/05_ntp_syslog.yml` | افزودن مقصد NTP و Syslog | مقصدهای قبلی حفظ می‌شوند |
-| `MikroTik/01_health_report.yml` | منابع سیستم، هویت، Interface و آدرس‌ها | فقط خواندن؛ قابل استفاده برای CHR |
-| `MikroTik/02_export_config.yml` | خروجی متنی کانفیگ RouterOS 7 | export با مخفی بودن پیش‌فرض فیلدهای حساس |
-| `MikroTik/03_ensure_vlan_interface.yml` | ایجاد Interface منطقی VLAN روی parent موجود | ایجاد در صورت نبود؛ توقف در صورت تعارض؛ بدون تغییر bridge filtering |
-| `MikroTik/04_dhcp_reservation.yml` | رزرو IP برای یک MAC روی DHCP Server موجود | بررسی تعارض؛ بدون تبدیل خودکار lease داینامیک |
-| `MikroTik/05_static_route.yml` | افزودن route نام‌دار در جدول main | بررسی route موجود؛ مسیر پیش‌فرض نیازمند گزینهٔ صریح |
+| `Cisco/01_health_report.yml` | Version, IP addresses, CPU and interfaces | Read-only; JSON report on the controller |
+| `Cisco/02_backup_running_config.yml` | Full running-config backup | Read-only; private local file |
+| `Cisco/03_ensure_vlan.yml` | Create a VLAN or correct its name | Only the selected VLAN; port membership unchanged |
+| `Cisco/04_configure_access_port.yml` | Access VLAN and description on one port | Checks L2 capability and that the VLAN exists; refuses to convert a trunk unless allowed |
+| `Cisco/05_ntp_syslog.yml` | Add an NTP server and a syslog destination | Existing destinations are kept |
+| `MikroTik/01_health_report.yml` | System resources, identity, interfaces and addresses | Read-only; works on CHR |
+| `MikroTik/02_export_config.yml` | RouterOS 7 text export | Read-only; sensitive fields hidden by default |
+| `MikroTik/03_ensure_vlan_interface.yml` | VLAN interface on an existing parent | Created if missing; stops on conflict; bridge filtering unchanged |
+| `MikroTik/04_dhcp_reservation.yml` | Reserve an IP for a MAC on an existing DHCP server | Checks for conflicts; dynamic leases are not converted |
+| `MikroTik/05_static_route.yml` | Named route in the `main` table | Checks existing routes; a default route needs explicit permission |
 
-شش پلی‌بوک قدیمی ریپو در `Original/` نگهداری شده‌اند و جزو این ده فایل جدید نیستند؛ داخل محصول نیز در Catalog با عنوان Original ثبت می‌شوند.
+`Original/` keeps the six Playbooks of the original project; they appear in the catalog with an *Original* prefix. The two original access-list Playbooks (`cisco_acl.yml`, `mikrotik_acl.yml`) can be run only by an administrator and cannot be scheduled — use [Firewall](../docs/FIREWALL.md) for filter changes.
 
-## پیش‌نیازها
+Example variables for every Playbook are in `examples/<vendor>/`.
 
-- کنترلر Linux، WSL2 یا Docker با Python 3.12 یا جدیدتر و dependencyهای نسخهٔ فعلی؛ رابط وب از طریق سرور Flask در دسترس است.
-- SSH به تجهیزات آزمایشگاهی خودتان، حساب دارای مجوز مناسب و host key تأییدشده در `known_hosts`.
-- Cisco IOS/IOS XE؛ عملیات VLAN/access port برای switch دارای قابلیت L2 است، نه هر Router سیسکو. متن خروجی preflight باید با نسخهٔ تجهیز آزمایش شود.
-- فایل‌های MikroTik برای **RouterOS 7** هستند. قبل از export/تغییر نسخهٔ major بررسی می‌شود. RouterOS 6 تحت پوشش این بسته نیست.
+## Preview and apply
 
-از ریشهٔ پروژه، با Python نسخهٔ 3.12، 3.13 یا 3.14:
+The Playbooks that change configuration take a boolean `narsika_apply`, which defaults to `false`:
+
+- **`false` (Preview)** — inputs are validated and the plan is shown; the device configuration is not changed.
+- **`true` (Apply)** — the change is made.
+
+In the web interface, **Operation mode** sets `narsika_apply` for you. Changing Playbooks run one host at a time (`serial: 1`) and stop at the first error. This is not a transaction: there is no automatic rollback.
+
+## Requirements
+
+- Cisco IOS or IOS XE. VLAN and access-port Playbooks need a switch with L2 features, not just any Cisco router. Check preflight output against your IOS version.
+- MikroTik Playbooks target **RouterOS 7**; the major version is checked before export or change. RouterOS 6 is not supported.
+- An SSH account with suitable privileges, and a verified host key.
+
+## Running from the command line
+
+From the project root, with Python 3.12, 3.13 or 3.14:
 
 ```sh
 python3 -m venv .venv
@@ -39,13 +51,9 @@ python tools/install_collections.py --verify-only
 cd Playbooks
 ```
 
-نصب‌کننده نسخه و SHA-256 چهار artifact رسمی را کنترل می‌کند و آن‌ها را بدون resolver آنلاین Galaxy در محیط همان پروژه نصب می‌کند. بررسی syntax و بارگذاری plugin جای آزمایش روی تجهیز واقعی را نمی‌گیرد. جزئیات نسخه‌ها، نصب آفلاین و محدودیت‌های تست در `../docs/ANSIBLE-DEPENDENCIES.md` ثبت شده است.
+Copy `inventory.example.yml` for your lab and set real addresses and usernames. The `192.0.2.0/24` and `198.51.100.0/24` addresses in the examples are documentation ranges. Supply passwords with `--ask-pass` and, for Cisco enable, `--ask-become-pass`, or use Ansible Vault — never put secrets in `--extra-vars` or on the command line. Host-key checking is enabled in `ansible.cfg`.
 
-از `inventory.example.yml` یک کپی برای محیط خود بسازید و IP/usernameها را اصلاح کنید. آدرس‌های `192.0.2.0/24` و `198.51.100.0/24` در مثال‌ها برای مستندسازی‌اند و شبکهٔ شما نیستند. هیچ password واقعی یا نمونهٔ پیش‌فرض داخل inventory قرار داده نشده است.
-
-برای password از `--ask-pass`، برای Cisco enable از `--ask-become-pass` یا از Ansible Vault استفاده کنید. رمز را داخل `--extra-vars` یا command line ننویسید. در اتصال با SSH key از تنظیمات معمول کلید استفاده کنید و گزینهٔ درخواست password را حذف کنید. host-key verification در config روشن است.
-
-## نمونهٔ اجرای فقط خواندنی
+### Read-only examples
 
 ```sh
 ansible-playbook -i inventory.lab.yml Cisco/01_health_report.yml --limit cisco_lab --ask-pass --ask-become-pass
@@ -54,69 +62,51 @@ ansible-playbook -i inventory.lab.yml MikroTik/01_health_report.yml --limit mikr
 ansible-playbook -i inventory.lab.yml MikroTik/02_export_config.yml --limit mikrotik_lab --ask-pass
 ```
 
-گزارش/بکاپ در پوشهٔ یکتای `artifacts/host_<name>_<random>/` روی **کنترلر** نوشته می‌شود. پوشه `0700` و فایل `0600` است. مسیر با `narsika_artifact_root` قابل تغییر است. `--check` برای collectorها عمداً رد می‌شود؛ collector باید واقعاً بخواند و فایل بسازد.
+Reports and backups are written on the **controller** in a unique `artifacts/host_<name>_<random>/` folder (mode 0700, files 0600); change the location with `narsika_artifact_root`. Collectors refuse `--check`, because they must actually read the device.
 
-کانفیگ کامل Cisco می‌تواند اطلاعات حساس داشته باشد؛ محتوای آن با `no_log` از خروجی task پنهان می‌ماند. خروجی متنی MikroTik جایگزین binary backup نیست و passwords، certificates و SSH keys را برای بازیابی کامل در بر نمی‌گیرد. خطای export جزئی، موفقیت کامل تلقی نمی‌شود.
+A full Cisco configuration can contain secrets; it is hidden from task output with `no_log`. The MikroTik text export is not a binary backup and does not include passwords, certificates or SSH keys. A partial export is reported as a failure.
 
-## پیش‌نمایش و اجرای تغییر
-
-از فایل متغیر همان پلی‌بوک کپی بگیرید؛ نمونه:
+### Change examples
 
 ```sh
 cp examples/Cisco/03_ensure_vlan.vars.yml lab-vlan.yml
-ansible-playbook -i inventory.lab.yml Cisco/03_ensure_vlan.yml --limit cisco_lab -e @lab-vlan.yml
-```
-
-در این حالت مقدار `narsika_apply: false` است؛ ورودی اعتبارسنجی می‌شود و طرح نمایش داده می‌شود، ولی برای این پلی‌بوک تغییردهنده اتصال/تغییر تجهیز انجام نمی‌شود. پس از بازبینی، در فایل متغیر مقدار را به **boolean** `true` تغییر دهید و اجرا کنید:
-
-```sh
 ansible-playbook -i inventory.lab.yml Cisco/03_ensure_vlan.yml --limit cisco_lab -e @lab-vlan.yml --ask-pass --ask-become-pass
 ```
 
-برای MikroTik نیز فایل متغیر مسیر متناظر را استفاده کنید:
+With `narsika_apply: false` this validates and prints the plan. After reviewing it, set `narsika_apply: true` (a boolean) in your copy and run again. MikroTik works the same way, for example with `examples/MikroTik/04_dhcp_reservation.vars.yml`.
 
-```sh
-cp examples/MikroTik/04_dhcp_reservation.vars.yml lab-dhcp.yml
-ansible-playbook -i inventory.lab.yml MikroTik/04_dhcp_reservation.yml --limit mikrotik_lab -e @lab-dhcp.yml
-```
+`--check` on changing Playbooks only validates variables and shows the plan; it is not a full device dry-run. The RouterOS command module does not really support check mode.
 
-پس از اصلاح پارامترها و `narsika_apply: true`، همان دستور را با روش احراز هویت خود اجرا کنید. دکمهٔ **Preview run** داخل UI فقط شبیه‌سازی است و این دستورات CLI را اجرا نمی‌کند.
+## Important variables
 
-`--check` در فایل‌های تغییردهنده فقط نمایش طرح/اعتبارسنجی متغیرهاست؛ آن را dry-run کامل دستگاه یا پیش‌بینی دقیق diff تلقی نکنید. به‌ویژه ماژول RouterOS command پشتیبانی واقعی check mode ندارد. در تمام حالت‌های check، block تغییردهنده skip می‌شود.
-
-## پارامترهای مهم
-
-| پارامتر | توضیح |
+| Variable | Meaning |
 |---|---|
-| `narsika_targets` | پیش‌فرض گروه vendor؛ در runner تک‌Host می‌تواند `all` باشد |
-| `narsika_apply` | فقط boolean؛ برای سه فایل تغییردهندهٔ هر vendor پیش‌فرض false |
-| `narsika_artifact_root` | پوشهٔ محلی خروجی گزارش و بکاپ روی کنترلر |
-| `save_config` | Cisco: پیش‌فرض false؛ true تغییر همان task را در startup-config نیز ذخیره می‌کند |
-| `vlan_id`, `vlan_name` | Cisco: VLAN غیررزرو 2–4094؛ MikroTik: ID از 1 تا 4094 |
-| `interface_name`, `access_vlan`, `interface_description` | نام کامل پورت L2، VLAN از قبل موجود و توضیح ASCII تک‌خطی |
-| `allow_trunk_conversion` | فقط پس از بررسی نقش پورت؛ پیش‌فرض false |
-| `ntp_server`, `syslog_server` | IPv4 مقصدهای موجود در محیط شما |
-| `parent_interface` | parent موجود در RouterOS؛ فعال‌سازی bridge filtering یا membership انجام نمی‌شود |
-| `dhcp_server`, `lease_address`, `lease_mac`, `lease_comment` | DHCP Server موجود، IPv4 رزرو، MAC استاندارد و توضیح |
-| `route_name`, `route_destination`, `route_gateway`, `route_distance` | نام یکتا، شبکهٔ IPv4 canonical، gateway و distance از 1 تا 254 |
-| `allow_default_route` | افزودن `/0` نیازمند true؛ پیش‌فرض false |
+| `narsika_targets` | Target group; defaults to the vendor group (`all` in single-host runs from Narsika) |
+| `narsika_apply` | Boolean; `false` by default for the changing Playbooks |
+| `narsika_artifact_root` | Local folder for reports and backups on the controller |
+| `save_config` | Cisco: also save the change to startup-config (default `false`) |
+| `vlan_id`, `vlan_name` | Cisco: non-reserved VLAN 2–4094; MikroTik: 1–4094 |
+| `interface_name`, `access_vlan`, `interface_description` | Full L2 port name, an existing VLAN and a single-line ASCII description |
+| `allow_trunk_conversion` | Allow changing a trunk port to access; only after checking the port's role (default `false`) |
+| `ntp_server`, `syslog_server` | IPv4 destinations in your environment |
+| `parent_interface` | Existing RouterOS parent interface; bridge filtering and membership are not changed |
+| `dhcp_server`, `lease_address`, `lease_mac`, `lease_comment` | Existing DHCP server, reserved IPv4, MAC and comment |
+| `route_name`, `route_destination`, `route_gateway`, `route_distance` | Unique name, canonical IPv4 network, gateway and distance 1–254 |
+| `allow_default_route` | Required to add a `/0` route (default `false`) |
 
-در RouterOS ساخت منبع غایب انجام می‌شود و اجرای دوباره روی منبع منطبق، تغییری روی آن نمی‌دهد. منبع متعارض خودکار overwrite نمی‌شود. توضیح lease موجود به‌تنهایی هم بازنویسی نمی‌شود. روی کنترلر در هر اجرای apply یک snapshot جدید ساخته می‌شود؛ بنابراین تغییر فایل محلی با idempotency تجهیز یکی نیست.
+On RouterOS, missing resources are created and matching ones are left alone; conflicting resources are never overwritten, and an existing lease's comment is not rewritten on its own. Each apply writes a new snapshot on the controller, so a new local file does not mean the device changed.
 
-## بازگشت و محدودیت‌ها
+## Rollback and limits
 
-- اجرای تغییردهنده به‌صورت `serial: 1` است و خطا ادامهٔ batch را متوقف می‌کند. این تنظیم transaction یا rollback خودکار ایجاد نمی‌کند.
-- پیش از تغییر، snapshot قبلی نگهداری می‌شود. Cisco فقط فیلدهای مشخص‌شده را مدیریت می‌کند؛ اصلاح `shutdown`، voice VLAN، STP، port security یا ACL attachment در این ده فایل وجود ندارد.
-- برای بازگشت، تفاوت همان operation را با snapshot بررسی و فقط تغییر موردنظر را در محیط مجاز بازگردانید. کانفیگ کامل را بدون تطبیق نسخه و توپولوژی جایگزین نکنید. حذف VLAN/route/lease تازه‌ساخته هم خودکار انجام نمی‌شود.
-- افزودن VLAN منطقی MikroTik به معنی آماده شدن forwarding سراسری نیست؛ tagging، parent، bridge VLAN table و شبکهٔ بالادست باید از قبل درست باشند. DHCP باید با subnet و pool واقعی هماهنگ باشد. فعال بودن route هم به دسترس‌پذیری gateway وابسته است.
-- افزودن NTP/Syslog وجود تنظیمات را مدیریت می‌کند؛ رسیدن log به سرور یا sync شدن ساعت، به سرویس/مسیر/ACL موجود بستگی دارد. `save_config` کل running-config جاری را ذخیره می‌کند، بنابراین تغییرهای ذخیره‌نشدهٔ قبلی هم ممکن است ماندگار شوند.
+- A snapshot is kept before each change. To roll back, compare the operation with the snapshot and revert only that change; don't replace a whole configuration without matching version and topology. Newly created VLANs, routes and leases are not removed automatically.
+- Cisco Playbooks manage only the listed fields; they do not change `shutdown`, voice VLAN, STP, port security or ACL attachment.
+- A MikroTik VLAN interface does not make end-to-end forwarding work by itself: tagging, the parent, the bridge VLAN table and upstream devices must already be right. DHCP reservations must match the real subnet and pool; a route is only useful if its gateway is reachable.
+- NTP/syslog Playbooks manage the configuration only; delivery depends on routing, ACLs and the remote services. `save_config` saves the whole running-config, including earlier unsaved changes.
 
-## وضعیت تست
+## Testing status
 
-ساختار YAML و ورودی‌های نمونه بررسی می‌شوند. اجرای Ansible، SSH، preflight واقعی، تغییر و rollback روی Cisco/RouterOS در این محیط انجام نشده است؛ وضعیت آن‌ها `LAB_REQUIRED` است. `ansible-playbook --syntax-check` نیز به نصب Ansible و collectionها نیاز دارد و در محیط ساخت در دسترس نبوده است. گزارش دقیق‌تر در `../docs/VALIDATION.md` قرار دارد.
+All Playbooks pass `ansible-playbook --syntax-check` in CI with the pinned collections. Syntax checks do not replace running them against your own Cisco and RouterOS versions in a lab.
 
-## منابع رسمی بررسی‌شده
+## References
 
-تعریف پارامترهای backup/save/match از [Cisco IOS config module](https://docs.ansible.com/projects/ansible/latest/collections/cisco/ios/ios_config_module.html) بررسی شده است. رفتار خروجی و محدودیت check mode از [RouterOS command module](https://docs.ansible.com/projects/ansible/latest/collections/community/routeros/command_module.html) و quoting پارامترها از [RouterOS quoting filters](https://docs.ansible.com/projects/ansible/latest/collections/community/routeros/docsite/quoting.html) گرفته شده‌اند.
-
-مرجع ویژگی‌های RouterOS: [Configuration Management](https://help.mikrotik.com/docs/spaces/ROS/pages/328155/Configuration+Management)، [VLAN](https://help.mikrotik.com/docs/spaces/ROS/pages/88014957/VLAN)، [DHCP](https://help.mikrotik.com/docs/spaces/ROS/pages/24805500/DHCP) و [IP Routing](https://help.mikrotik.com/docs/spaces/ROS/pages/328084/IP+Routing). این منابع، جایگزین تست روی نسخهٔ نصب‌شدهٔ تجهیز شما نیستند. تاریخ بررسی: 2026-09-06.
+[cisco.ios.ios_config](https://docs.ansible.com/projects/ansible/latest/collections/cisco/ios/ios_config_module.html) · [community.routeros.command](https://docs.ansible.com/projects/ansible/latest/collections/community/routeros/command_module.html) · [RouterOS quoting filters](https://docs.ansible.com/projects/ansible/latest/collections/community/routeros/docsite/quoting.html) · MikroTik: [Configuration management](https://help.mikrotik.com/docs/spaces/ROS/pages/328155/Configuration+Management), [VLAN](https://help.mikrotik.com/docs/spaces/ROS/pages/88014957/VLAN), [DHCP](https://help.mikrotik.com/docs/spaces/ROS/pages/24805500/DHCP), [IP routing](https://help.mikrotik.com/docs/spaces/ROS/pages/328084/IP+Routing)
