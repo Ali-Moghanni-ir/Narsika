@@ -88,3 +88,17 @@ test('a post-write reload does not reuse or lose to an older inventory read',asy
   requests[0].resolve({data:{devices:[{id:1,name:'Stale device'}]}});await old;
   assert.equal(D.state.devices[0].id,2);assert.equal(events.length,1);
 });
+
+test('assistant markdown escapes model output before formatting it',()=>{
+  const window={};vm.runInContext(fs.readFileSync('app/static/js/assistant-markdown.js','utf8'),vm.createContext({window}));
+  const {render}=window.NarsikaMarkdown;
+  const html=render('## Findings\n- **R1** <img src=x onerror=alert(1)>\n- `show ip int brief`\n\n| Device | CPU |\n|---|---|\n| <b>R1</b> | 91% |\n\n```\n<script>x</script>\n```\nplain *text*');
+  assert.ok(!/<img|<script|<b>/.test(html));
+  assert.match(html,/<h3>Findings<\/h3>/);
+  assert.match(html,/<li><strong>R1<\/strong> &lt;img src=x onerror=alert\(1\)&gt;<\/li>/);
+  assert.match(html,/<code>show ip int brief<\/code>/);
+  assert.match(html,/<th>Device<\/th><th>CPU<\/th>.*<td>&lt;b&gt;R1&lt;\/b&gt;<\/td>/);
+  assert.match(html,/<pre dir="ltr"><code>&lt;script&gt;x&lt;\/script&gt;<\/code><\/pre>/);
+  assert.match(html,/<p>plain <em>text<\/em><\/p>/);
+  assert.equal(render('| not a table'),'<p>| not a table</p>');
+});

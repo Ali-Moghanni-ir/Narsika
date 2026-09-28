@@ -158,6 +158,8 @@ def create_app(config=None):
     app.register_blueprint(firewall_api, url_prefix='/api/firewall')
     from .schedules_api import schedules_api
     app.register_blueprint(schedules_api, url_prefix='/api/schedules')
+    from .assistant_api import assistant_api
+    app.register_blueprint(assistant_api, url_prefix='/api/assistant')
     if app.config['START_WORKER']:
         from .services.jobs import JobManager
         app.extensions['jobs']=JobManager(app)
