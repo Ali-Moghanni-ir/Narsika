@@ -1,0 +1,8 @@
+---
+# Separate included tasks stop the host after a failed item, unlike a module loop.
+- name: Apply one reviewed RouterOS entry
+  community.routeros.command:
+    commands: "{{ firewall_item.commands }}"
+  register: applied
+  failed_when: "'NARSIKA_APPLIED' not in applied.stdout[0]"
+  changed_when: "'NARSIKA_APPLIED' in applied.stdout[0]"

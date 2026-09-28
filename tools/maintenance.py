@@ -35,7 +35,11 @@ def maintain(data_dir,backup_dir,key,days,apply=False):
             artifact_rows=[dict(r) for r in connection.execute("SELECT a.* FROM run_artifact a JOIN operation_run r ON r.id=a.run_id WHERE r.finished_at<? AND r.status NOT IN ('PENDING','RUNNING') ORDER BY a.id LIMIT 500",(cutoff,))]
             audit_rows=[dict(r) for r in connection.execute('SELECT * FROM audit_event WHERE created_at<? ORDER BY id LIMIT 500',(cutoff,))]
             log_rows=[dict(r) for r in connection.execute('SELECT * FROM audit_log WHERE timestamp<? ORDER BY id LIMIT 500',(cutoff[:19].replace('T',' '),))]
-            run_rows=[dict(r) for r in connection.execute("SELECT r.* FROM operation_run r WHERE r.finished_at<? AND r.status NOT IN ('PENDING','RUNNING') AND NOT EXISTS(SELECT 1 FROM backup b WHERE b.operation_run_id=r.id) AND NOT EXISTS(SELECT 1 FROM run_artifact a WHERE a.run_id=r.id) AND NOT EXISTS(SELECT 1 FROM discovery_scan s WHERE s.run_id=r.id) ORDER BY r.id LIMIT 500",(cutoff,))]
+            has_firewall=connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='firewall_review'").fetchone()
+            firewall_guard=" AND NOT EXISTS(SELECT 1 FROM firewall_review f WHERE f.run_id=r.id)" if has_firewall else ''
+            if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schedule_run'").fetchone():
+                firewall_guard+=" AND NOT EXISTS(SELECT 1 FROM schedule_run s WHERE s.run_id=r.id)"
+            run_rows=[dict(r) for r in connection.execute("SELECT r.* FROM operation_run r WHERE r.finished_at<? AND r.status NOT IN ('PENDING','RUNNING') AND NOT EXISTS(SELECT 1 FROM backup b WHERE b.operation_run_id=r.id) AND NOT EXISTS(SELECT 1 FROM run_artifact a WHERE a.run_id=r.id) AND NOT EXISTS(SELECT 1 FROM discovery_scan s WHERE s.run_id=r.id)"+firewall_guard+" ORDER BY r.id LIMIT 500",(cutoff,))]
             tables={'backup':backup_rows,'run_artifact':artifact_rows,'audit_event':audit_rows,'audit_log':log_rows,'operation_run':run_rows}
             summary={'cutoff':cutoff,'apply':apply,'records':{name:len(rows) for name,rows in tables.items()},'archive':None}
             if not apply or not any(tables.values()):connection.rollback();return summary

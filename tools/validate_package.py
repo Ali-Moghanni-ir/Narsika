@@ -23,7 +23,7 @@ def main():
     print('PASS portable package paths and required release files')
     print('PASS Python syntax')
     for path in (ROOT/'app/static/js').glob('*.js'):subprocess.run(['node','--check',str(path)],check=True,capture_output=True)
-    print('PASS JavaScript syntax (11 modules)')
+    print(f'PASS JavaScript syntax ({len(list((ROOT/"app/static/js").glob("*.js")))} modules)')
     for path in [ROOT/'run_linux.sh',ROOT/'tools/run_native_linux.sh',ROOT/'tools/native_platform.sh',ROOT/'tools/run_docker_linux.sh']:subprocess.run(['bash','-n',str(path)],check=True)
     print('PASS Linux launcher syntax')
     compose=yaml.safe_load((ROOT/'docker-compose.yml').read_text())

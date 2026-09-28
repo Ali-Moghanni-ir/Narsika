@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="{{ static_root }}/css/schedules.css">
+<div class="page-head">
+  <div><div class="eyebrow">NARSIKA / AUTOMATION</div><h1>Scheduled tasks</h1><p>Your routine operations, ready when they are needed.</p></div>
+  <div class="page-actions"><button class="btn" id="schedule-refresh"><i data-icon="refresh"></i>Refresh</button><button class="btn primary" id="schedule-create" data-permission="operate"><i data-icon="plus"></i>New task</button></div>
+</div>
+<div id="schedule-worker" class="notice warning" role="status" hidden></div>
+<div class="summary-grid" id="schedule-summary" aria-label="Schedule overview"></div>
+<div class="schedule-layout">
+  <section class="panel">
+    <div class="panel-head"><div><h2>Operation calendar</h2><small>Defined by you. Executed by Narsika.</small></div><span class="badge" id="schedule-count">Loading…</span></div>
+    <div class="toolbar"><input type="search" class="search" id="schedule-search" placeholder="Search task, owner or device…" aria-label="Search scheduled tasks"><select id="schedule-filter" aria-label="Schedule state"><option value="">All tasks</option><option value="active">Active</option><option value="paused">Paused / completed</option><option value="attention">Needs attention</option></select></div>
+    <div id="schedule-list" aria-live="polite"><div class="panel-body muted">Loading scheduled tasks…</div></div>
+  </section>
+  <aside class="panel schedule-guide"><div class="panel-head"><h2>A predictable routine</h2><i data-icon="clock"></i></div><div class="panel-body">
+    <div class="schedule-tip"><span>01</span><div><strong>Choose the work</strong><p>Backups or an existing Playbook. Only compatible targets.</p></div></div>
+    <div class="schedule-tip"><span>02</span><div><strong>Set your rhythm</strong><p>One time, every few hours, daily or weekly. With an explicit time zone.</p></div></div>
+    <div class="schedule-tip"><span>03</span><div><strong>Follow the outcome</strong><p>Every occurrence has a receipt and a result for each device.</p></div></div>
+    <div class="notice">No browser needs to stay open. The Narsika service must be running.</div>
+    <p class="field-note">Overlapping work is skipped. Past-due windows are recorded without a catch-up burst. Failed device commands are never automatically replayed.</p>
+  </div></aside>
+</div>
+<section class="panel schedule-detail" id="schedule-detail" hidden aria-label="Selected task history"></section>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ static_root }}/js/schedules.js"></script>{% endblock %}

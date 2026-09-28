@@ -59,7 +59,8 @@ def test_native_installer_uses_distribution_default_supported_python():
     assert "sys.version_info < (3, 12)" in installer
     assert "run(sys.executable, '-m', 'venv'" in installer
     assert "':/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'" in installer
-    assert "'--timeout', '120', '--retries', '10'" in installer
+    assert 'dependencies.install(' in installer
+    assert 'NARSIKA_PIP_INDEX_URL' in launcher and 'PIP_DEFAULT_TIMEOUT' in launcher
 
 
 def test_failed_concurrent_refresh_never_returns_expired_data(admin, app, monkeypatch):

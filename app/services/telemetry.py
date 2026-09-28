@@ -21,7 +21,7 @@ def coalesced_sample(function):
     @wraps(function)
     def wrapped(device):
         identity=tuple(getattr(device,key) for key in ('id','ip_address','platform','ssh_port','snmp_port','credential_id','snmp_credential_id'))
-        profiles=tuple(hashlib.sha256(p.encrypted_secret.encode()).digest() if p else b''
+        profiles=tuple(hashlib.sha256((p.username+'\0'+p.encrypted_secret).encode()).digest() if p else b''
                        for p in (device.credential,device.snmp_credential))
         key=(function.__name__,identity,profiles)
         with SAMPLE_LOCK:
@@ -178,7 +178,8 @@ def interfaces(device):
             try:
                 rows,uptime=asyncio.run(asyncio.wait_for(snmp_snapshot(device.ip_address,device.snmp_port,device.snmp_credential.username,values),timeout=25))
             except Exception:fail('SNMPv3 collection failed. Check reachability, username, SHA-256/AES keys and device support.','SNMP_ERROR',502)
-            identity=(device.ip_address,device.snmp_port,device.snmp_credential_id)
+            revision=hashlib.sha256((device.snmp_credential.username+'\0'+device.snmp_credential.encrypted_secret).encode()).digest()
+            identity=(device.ip_address,device.snmp_port,device.snmp_credential_id,revision)
             counter_key=(current_app.config['DATA_DIR'],device.id)
             tick=time.monotonic()
             with SAMPLE_LOCK:old=COUNTERS.get(counter_key,([],tick,uptime,identity))
