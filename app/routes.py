@@ -10,8 +10,8 @@ from .models import db, User, LoginAttempt, Credential, Device, Playbook
 from .security import csrf_token, password_policy, audit, fail, require, APIError
 
 web=Blueprint('web',__name__)
-PAGES={'inventory':'Device inventory','discovery':'Discovery','health':'Device health','interfaces':'Interfaces','playbooks':'Playbooks','vlan':'VLAN management','acl':'Access lists','backups':'Backups','audit':'Audit log','settings':'Settings'}
-PAGES['firewall']='Firewall control'
+PAGES={'inventory':'Device inventory','discovery':'Discovery','health':'Device health','interfaces':'Interfaces','playbooks':'Playbooks','vlan':'VLAN management','backups':'Backups','audit':'Audit log','settings':'Settings'}
+PAGES['firewall']='Firewall'
 PAGES['schedules']='Scheduled tasks'
 DUMMY_PASSWORD_HASH=generate_password_hash('unused-password-verification',method='scrypt')
 
@@ -95,6 +95,13 @@ for slug in PAGES:
     view=signed_in(view)
     web.add_url_rule('/'+slug,endpoint=slug,view_func=view)
     web.add_url_rule('/'+slug+'.html',endpoint=slug,view_func=view)
+
+@web.get('/acl')
+@web.get('/acl.html')
+@signed_in
+def acl_moved():
+    """Access lists were merged into Firewall control; keep old links working."""
+    return redirect('/firewall.html')
 
 @web.get('/health/<int:device_id>')
 @signed_in

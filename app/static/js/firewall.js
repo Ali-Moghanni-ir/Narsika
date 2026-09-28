@@ -28,7 +28,16 @@
   function scope(){
     const common={source:$('#fw-source').value.trim(),destination:$('#fw-destination').value.trim()};
     return state.device.platform==='mikrotik'?{...common,chain:$('#fw-chain').value,position:$('#fw-position').value}:
+      $('#fw-acl').value==='__new__'?{...common,acl:$('#fw-new-acl').value.trim(),create_acl:true,sequence:$('#fw-sequence').value}:
       {...common,acl:$('#fw-acl').value,sequence:$('#fw-sequence').value};
+  }
+  // Names IOS already uses for any IPv4 access list; a new ACL must not reuse them.
+  function knownAclNames(){return new Set([...(state.snapshot?.acl_names||[]),...Object.keys(state.snapshot?.acls||{})]);}
+  function newAclProblem(rule){
+    if(!state.snapshot)return 'Read the firewall before creating an access list.';
+    if(!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(rule.acl||''))return 'Name the new ACL with a letter first, then letters, digits, _ or - (up to 64 characters).';
+    if(knownAclNames().has(rule.acl))return 'An access list with this name already exists on the device. Select it instead.';
+    return '';
   }
   function renderServices(){
     const presets=(state.capabilities?.presets||[]).filter(p=>p.id!=='winbox'||state.device?.platform!=='cisco').map(p=>p.id==='ssh'&&state.device?{...p,port:state.device.ssh_port}:p);
@@ -40,7 +49,10 @@
   }
   function stage(rule,index=null){
     if(state.busy||!state.device)return false;
-    if(state.device.platform==='cisco'&&(!rule.acl||state.snapshot?.unsupported_acls?.includes(rule.acl))){feedback('Read the firewall and select an editable named extended ACL first.','error');return false;}
+    if(state.device.platform==='cisco'&&rule.create_acl){
+      const problem=newAclProblem(rule);
+      if(problem){feedback(problem,'error');return false;}
+    }else if(state.device.platform==='cisco'&&(!rule.acl||state.snapshot?.unsupported_acls?.includes(rule.acl))){feedback('Read the firewall and select an editable named extended ACL, or create a new one.','error');return false;}
     if(index===null&&state.changes.length>=20){feedback('A change set can contain at most 20 rules.','error');return false;}
     if(index===null)state.changes.push(rule);else state.changes[index]=rule;
     if(state.device.platform==='cisco'&&index===null)$('#fw-sequence').value=Number(rule.sequence)+10;
@@ -50,7 +62,7 @@
   function renderCart(){
     $('#fw-cart-count').textContent=state.changes.length;
     $('#fw-clear').disabled=!state.changes.length||state.busy;
-    $('#fw-cart-items').innerHTML=state.changes.length?state.changes.map((r,i)=>`<div class="fw-cart-item"><div class="fw-cart-item-head"><span class="fw-muted">${i+1}</span><strong>${h(label(r))}</strong><span class="fw-intent ${h(r.action)}">${h(r.action.toUpperCase())}</span></div><p>${h(r.source)} → ${h(r.destination)}<br>${h(r.chain||r.acl)} · ${h(r.position||'sequence '+r.sequence)}${r.port?' · port '+h(r.port):''}</p><div class="fw-item-tools"><button class="btn" data-edit="${i}" aria-label="Edit change ${i+1}">Edit</button><button class="btn" data-up="${i}" ${i===0?'disabled':''} aria-label="Move change ${i+1} up">↑</button><button class="btn" data-down="${i}" ${i===state.changes.length-1?'disabled':''} aria-label="Move change ${i+1} down">↓</button><button class="btn ghost fw-remove" data-remove="${i}" aria-label="Remove staged change ${i+1}">Remove</button></div></div>`).join(''):
+    $('#fw-cart-items').innerHTML=state.changes.length?state.changes.map((r,i)=>`<div class="fw-cart-item"><div class="fw-cart-item-head"><span class="fw-muted">${i+1}</span><strong>${h(label(r))}</strong><span class="fw-intent ${h(r.action)}">${h(r.action.toUpperCase())}</span></div><p>${h(r.source)} → ${h(r.destination)}<br>${h(r.chain||r.acl)}${r.create_acl?' (new ACL)':''} · ${h(r.position||'sequence '+r.sequence)}${r.port?' · port '+h(r.port):''}</p><div class="fw-item-tools"><button class="btn" data-edit="${i}" aria-label="Edit change ${i+1}">Edit</button><button class="btn" data-up="${i}" ${i===0?'disabled':''} aria-label="Move change ${i+1} up">↑</button><button class="btn" data-down="${i}" ${i===state.changes.length-1?'disabled':''} aria-label="Move change ${i+1} down">↓</button><button class="btn ghost fw-remove" data-remove="${i}" aria-label="Remove staged change ${i+1}">Remove</button></div></div>`).join(''):
       `<div class="fw-cart-empty"><div class="fw-cart-orbit">${icon('layers')}</div><h3>Build your next change</h3><p>Choose a service or add a custom rule. Review everything together before it touches the network.</p></div>`;
     $$('[data-remove]').forEach(b=>b.onclick=()=>{if(state.busy)return;state.changes.splice(+b.dataset.remove,1);state.receipt=null;renderCart();});
     $$('[data-edit]').forEach(b=>b.onclick=()=>editRule(+b.dataset.edit));
@@ -73,7 +85,7 @@
     const rule=index===null?{...scope(),service:'custom',protocol:'tcp',port:8080,action:'allow'}:{...state.changes[index]};
     const mt=state.device.platform==='mikrotik';
     const options=(values,current)=>values.map(v=>`<option value="${h(v)}" ${String(current)===String(v)?'selected':''}>${h(v)}</option>`).join('');
-    openModal(index===null?'Custom rule':'Edit staged rule',`<form id="fw-rule-form"><div class="fw-modal-fields"><label>Action<select name="action">${options(['allow','block'],rule.action)}</select></label><label>Protocol<select name="protocol" ${rule.service!=='custom'?'disabled':''}>${options(['tcp','udp','icmp','ip'],rule.protocol)}</select></label><label>Destination port<input name="port" type="number" min="1" max="65535" value="${h(rule.port||'')}"></label><label>Source network<input name="source" value="${h(rule.source)}" required maxlength="32"></label><label>Destination network<input name="destination" value="${h(rule.destination)}" required maxlength="32"></label>${mt?`<label>Chain<select name="chain">${options(['input','forward','output'],rule.chain)}</select></label><label>Position<select name="position">${options(['first','last'],rule.position)}</select></label>`:`<label>ACL<select name="acl">${options(Object.keys(state.snapshot?.acls||{}),rule.acl)}</select></label><label>Sequence<input name="sequence" type="number" min="1" max="2147483646" value="${h(rule.sequence)}" required></label>`}</div><p class="fw-caption">Use IPv4/CIDR or “any”. Ping matches echo requests only. Any IP includes all IPv4 protocols. Custom rules and high-risk changes require an administrator to apply.</p><button class="btn primary" type="submit">${index===null?'Add to change set':'Save staged change'}</button></form>`);
+    openModal(index===null?'Custom rule':'Edit staged rule',`<form id="fw-rule-form"><div class="fw-modal-fields"><label>Action<select name="action">${options(['allow','block'],rule.action)}</select></label><label>Protocol<select name="protocol" ${rule.service!=='custom'?'disabled':''}>${options(['tcp','udp','icmp','ip'],rule.protocol)}</select></label><label>Destination port<input name="port" type="number" min="1" max="65535" value="${h(rule.port||'')}"></label><label>Source network<input name="source" value="${h(rule.source)}" required maxlength="32"></label><label>Destination network<input name="destination" value="${h(rule.destination)}" required maxlength="32"></label>${mt?`<label>Chain<select name="chain">${options(['input','forward','output'],rule.chain)}</select></label><label>Position<select name="position">${options(['first','last'],rule.position)}</select></label>`:rule.create_acl?`<label>New ACL<input name="acl" value="${h(rule.acl)}" readonly></label>`:`<label>ACL<select name="acl">${options(Object.keys(state.snapshot?.acls||{}),rule.acl)}</select></label><label>Sequence<input name="sequence" type="number" min="1" max="2147483646" value="${h(rule.sequence)}" required></label>`}</div><p class="fw-caption">Use IPv4/CIDR or “any”. Ping matches echo requests only. Any IP includes all IPv4 protocols. Custom rules and high-risk changes require an administrator to apply.</p><button class="btn primary" type="submit">${index===null?'Add to change set':'Save staged change'}</button></form>`);
     const form=$('#fw-rule-form');
     const updatePort=()=>{form.elements.port.disabled=!['tcp','udp'].includes(form.elements.protocol.value);form.elements.port.required=!form.elements.port.disabled;};
     form.elements.protocol.onchange=updatePort;updatePort();
@@ -86,7 +98,7 @@
     $('#fw-snapshot-label').textContent='Read '+new Date(snapshot.captured_at).toLocaleTimeString();
     $('#fw-bindings').innerHTML=snapshot.bindings.length?`<div class="fw-binding">Observed attachment points<br>${snapshot.bindings.map(h).join('<br>')}</div>`:'';
     const query=$('#fw-search').value.toLowerCase(),rows=snapshot.rules.filter(r=>JSON.stringify(r).toLowerCase().includes(query));
-    if(!rows.length){$('#fw-rules').innerHTML=`<div class="fw-empty"><h3>${query?'No matching rules':'No supported rules found'}</h3><p>${query?'Try a different search.':state.device.platform==='cisco'?'This adapter needs an existing named extended IPv4 ACL. Standard and numbered ACLs are not editable here.':'No IPv4 filter entries were returned by the device.'}</p></div>`;return;}
+    if(!rows.length){$('#fw-rules').innerHTML=`<div class="fw-empty"><h3>${query?'No matching rules':'No supported rules found'}</h3><p>${query?'Try a different search.':state.device.platform==='cisco'?'No named extended IPv4 ACL was found. Create a new one from Traffic scope. Standard and numbered ACLs are not editable here.':'No IPv4 filter entries were returned by the device.'}</p></div>`;return;}
     const mt=state.device.platform==='mikrotik';
     const trace=r=>mt&&/^NARSIKA_FW_[a-f0-9]{16}$/.test(r.comment||'')?'Device tag':r.receipt_id?'Receipt match':'Unattributed';
     $('#fw-rules').innerHTML=`<table class="fw-table"><thead><tr><th>${mt?'Order':'Sequence'}</th><th>${mt?'Chain / state':'ACL'}</th><th>Observed configuration</th><th>Traceability</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="mono">${mt?r.index:r.sequence}</td><td>${h(mt?r.chain:r.acl)}${mt?`<br><span class="fw-muted">${r.disabled?'Disabled':'Enabled'}</span>`:''}</td><td class="fw-rule-code">${h(mt?r.raw.replace('/ip firewall filter add ',''):r.body)}</td><td><span class="badge" title="${h(r.receipt_id?'Matches receipt '+r.receipt_id+'; not proof of exclusive ownership.':'Device configuration observed over SSH.')}">${trace(r)}</span></td></tr>`).join('')}</tbody></table>`;
@@ -96,8 +108,8 @@
     if(!$('#fw-management-source').value)$('#fw-management-source').value=snapshot.source_ip_hint||'';
     const selected=$('#fw-acl').value;
     const editable=Object.keys(snapshot.acls).filter(name=>!snapshot.unsupported_acls?.includes(name));
-    $('#fw-acl').innerHTML='<option value="">Select existing ACL</option>'+Object.keys(snapshot.acls).map(name=>`<option value="${h(name)}" ${editable.includes(name)?'':'disabled'}>${h(name)}${editable.includes(name)?'':' (read-only)'}</option>`).join('');
-    if(editable.includes(selected))$('#fw-acl').value=selected;
+    $('#fw-acl').innerHTML='<option value="">Select existing ACL</option>'+Object.keys(snapshot.acls).map(name=>`<option value="${h(name)}" ${editable.includes(name)?'':'disabled'}>${h(name)}${editable.includes(name)?'':' (read-only)'}</option>`).join('')+'<option value="__new__">+ Create new extended ACL</option>';
+    if(editable.includes(selected)||selected==='__new__')$('#fw-acl').value=selected;
     else if(editable.length===1)$('#fw-acl').value=editable[0];
   }
   async function readFirewall(){await busy(async()=>{const data=await api(`/devices/${state.device.id}/refresh`,{});setSnapshot(data.state);feedback('Firewall read from the device. Review will read it again before preparing your plan.','success');});}
@@ -182,9 +194,11 @@
     $('#fw-run-panel').hidden=true;$('#fw-management-source').value='';$('#fw-search').value='';feedback('');
     $('#fw-target-meta').innerHTML=state.device?`<strong>${h(state.device.platform==='cisco'?'Cisco IOS':'MikroTik RouterOS')}</strong>${h(state.device.ip_address)} · SSH ${state.device.ssh_port} · IPv4 filter`:'Your inventory. Your real configuration.';
     const mt=state.device?.platform!=='cisco';$('#fw-chain-field').hidden=!mt;$('#fw-position-field').hidden=!mt;$('#fw-acl-field').hidden=mt;$('#fw-sequence-field').hidden=mt;
-    $('#fw-scope-note').textContent=mt?'First inserts ahead of existing rules; Last may be shadowed. Review shows the resulting placement.':'Only existing named extended ACLs with a free sequence. ACLs containing remarks are read-only because IOS may hide their sequences. Bindings remain unchanged.';
+    $('#fw-acl').value='';$('#fw-new-acl').value='';$('#fw-new-acl-field').hidden=true;
+    $('#fw-scope-note').textContent=mt?'First inserts ahead of existing rules; Last may be shadowed. Review shows the resulting placement.':'Add entries to an existing named extended ACL with a free sequence, or create a new named extended ACL. A new ACL has no effect until it is bound. ACLs containing remarks are read-only because IOS may hide their sequences. Bindings remain unchanged.';
     renderRules();renderServices();renderCart();if(state.device)history();else $('#fw-history').innerHTML='<div class="fw-empty">Choose a target to view its history.</div>';
   };
+  $('#fw-acl').onchange=()=>{$('#fw-new-acl-field').hidden=$('#fw-acl').value!=='__new__';if($('#fw-acl').value==='__new__')$('#fw-sequence').value=10;};
   $('#fw-refresh').onclick=readFirewall;$('#fw-search').oninput=renderRules;$('#fw-custom').onclick=()=>editRule();
   $('#fw-clear').onclick=()=>{if(state.busy)return;N.confirm('Clear staged changes','Only the local change set will be cleared. Device configuration is not affected.',()=>{state.changes=[];state.receipt=null;renderCart();});};
   $('#fw-review').onclick=()=>busy(async()=>{

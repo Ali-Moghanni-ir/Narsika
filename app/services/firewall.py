@@ -1,7 +1,8 @@
 """Firewall intent compiler: bounded input, immutable reviews and observed results.
 
-IPv4 filter additions only. Existing rules remain read-only. Cisco edits target
-existing extended ACLs; bindings, NAT, services and routing are never rewritten.
+IPv4 filter additions only. Existing rules remain read-only. Cisco edits add
+entries to existing named extended ACLs or create a new, unbound named extended
+ACL; bindings, NAT, services and routing are never rewritten.
 """
 import hashlib
 import ipaddress
@@ -88,6 +89,15 @@ def parse_cisco(raw):
     return acls
 
 
+def cisco_acl_names(raw: str) -> list[str]:
+    """Every IPv4 ACL name or number shown by IOS: standard, extended, reflexive and others.
+
+    A new named ACL must not reuse any of these, otherwise IOS would either
+    reject the command or add entries to a different access list.
+    """
+    return sorted(set(re.findall(r'^\S.*? access list (\S+)\s*$', raw, re.MULTILINE)))
+
+
 def read_state(device):
     """Caller owns device_lock. No configuration writes or demo fallback."""
     with net.connection(device) as client:
@@ -98,6 +108,7 @@ def read_state(device):
         elif device.platform == 'cisco':
             raw = net.command(client, 'show ip access-lists')
             acls = parse_cisco(raw)
+            acl_names = cisco_acl_names(raw)
             config = net.command(client, 'show running-config')
             bindings = []
             context = ''
@@ -113,14 +124,14 @@ def read_state(device):
                 if context and re.match(r'^\s+(ip access-group|access-class) ', line):
                     bindings.append(context+' / '+line.strip())
             rows = [dict(acl=name, **row) for name, entries in acls.items() for row in entries]
-            state = dict(rules=rows, acls=acls, bindings=bindings,
+            state = dict(rules=rows, acls=acls, acl_names=acl_names, bindings=bindings,
                          raw='\n'.join(name+': '+r['raw'] for name, entries in acls.items() for r in entries))
             # show ip access-lists may hide remarks and their occupied sequence.
             state['unsupported_acls'] = sorted(remark_acls)
         else:
             fail('This platform has no firewall adapter.', 'UNSUPPORTED', 422)
     # Exclude time and route hints from the configuration fingerprint.
-    state['fingerprint'] = digest({k:state.get(k) for k in ('rules', 'acls', 'bindings', 'unsupported_acls')})
+    state['fingerprint'] = digest({k:state.get(k) for k in ('rules', 'acls', 'acl_names', 'bindings', 'unsupported_acls')})
     state['source_ip_hint'] = source_ip(device)
     state['captured_at'] = now()
     return state
@@ -168,7 +179,8 @@ def normalize(data, device):
         fail('Review between 1 and 20 changes at a time.')
     result = []
     for i, row in enumerate(changes):
-        allowed = {'service', 'action', 'protocol', 'source', 'destination', 'port', 'chain', 'acl', 'sequence', 'position'}
+        allowed = {'service', 'action', 'protocol', 'source', 'destination', 'port', 'chain', 'acl', 'sequence', 'position',
+                   'create_acl'}
         if not isinstance(row, dict) or set(row)-allowed:
             fail('Unknown firewall rule fields.')
         protocol = row.get('protocol')
@@ -189,7 +201,12 @@ def normalize(data, device):
             fail('ICMP and Any IP do not have a destination port.')
         item = dict(service=service, protocol=protocol, action=action, port=port,
                     source=cidr(row.get('source', 'any')), destination=cidr(row.get('destination', 'any')))
+        create_acl = row.get('create_acl', False)
+        if not isinstance(create_acl, bool):
+            fail('create_acl must be true or false.')
         if device.platform == 'mikrotik':
+            if create_acl:
+                fail('Creating an access list applies to Cisco IOS only.')
             chain = row.get('chain', 'input')
             if chain not in ('input', 'forward', 'output'):
                 fail('Select input, forward or output.')
@@ -200,8 +217,8 @@ def normalize(data, device):
         else:
             acl = row.get('acl', '')
             if not isinstance(acl, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}', acl):
-                fail('Choose an existing named extended IPv4 ACL.')
-            item.update(acl=acl, sequence=integer(row.get('sequence'), 'Sequence', 1, 2147483646))
+                fail('Choose an existing named extended IPv4 ACL, or name a new one with letters, digits, _ or -.')
+            item.update(acl=acl, sequence=integer(row.get('sequence'), 'Sequence', 1, 2147483646), create_acl=create_acl)
         if item in result:
             fail('The change set contains duplicate rules.')
         result.append(item)
@@ -211,6 +228,7 @@ def normalize(data, device):
 def compile_plan(data, device, state, role):
     source, changes = normalize(data, device)
     items, warnings, occupied = [], [], set()
+    created = []  # Cisco ACL names this change set creates, in first-use order.
     for index, row in enumerate(changes):
         risk = 'MEDIUM'
         inbound = contains(row['source'], source) and contains(row['destination'], device.ip_address)
@@ -228,16 +246,29 @@ def compile_plan(data, device, state, role):
         elif row['action']=='block' or row['source']=='any':
             risk = 'HIGH'
         preset_port=device.ssh_port if row['service']=='ssh' else next((p['port'] for p in PRESETS if p['id']==row['service']),None)
-        if row['service']!='custom' and row['port']!=preset_port:
+        disguised = row['service'] != 'custom' and row['port'] != preset_port
+        if disguised:
             risk = max((risk, 'HIGH'), key=RANK.get)
         if device.platform == 'cisco':
             acl = row['acl']
-            if acl not in state['acls']:
+            if row['create_acl']:
+                existing_names = set(state.get('acl_names', [])) | set(state['acls'])
+                if acl in existing_names:
+                    fail('An access list with this name already exists on the device. Select it instead of creating a new one.',
+                         'CONFLICT', 409)
+                if acl not in created:
+                    created.append(acl)
+                # A new ACL is not bound to any interface or line, so it has no
+                # traffic effect until someone attaches it.
+                risk = 'HIGH' if disguised else 'LOW'
+            elif acl in created:
+                fail('Mark every entry for a new access list as a new-ACL entry.')
+            elif acl not in state['acls']:
                 fail('The selected extended ACL was not observed on the device.', 'STALE_STATE', 409)
             if acl in state.get('unsupported_acls', []):
                 fail('This ACL contains remarks with potentially hidden sequence numbers. It is read-only in this adapter.', 'UNSUPPORTED', 422)
             seq = row['sequence']
-            used = {x['sequence'] for x in state['acls'][acl]}
+            used = {x['sequence'] for x in state['acls'].get(acl, [])}
             for value in (seq,):
                 if value in used or (acl, value) in occupied:
                     fail('The selected ACL sequence is already occupied.')
@@ -249,8 +280,10 @@ def compile_plan(data, device, state, role):
                 body += ' echo'
             tag = 'NARSIKA_FW_'+uuid.uuid4().hex[:16]
             commands = [f'{seq} {body}']
-            rollback = [f'ip access-list extended {acl}', f' no {seq}', ' exit']
-            risk = max((risk, 'HIGH'), key=RANK.get)
+            if row['create_acl']:
+                rollback = [f'no ip access-list extended {acl}']
+            else:
+                rollback = [f'ip access-list extended {acl}', f' no {seq}', ' exit']
             parents = ['ip access-list extended '+acl]
             expected = dict(acl=acl, sequence=seq, body=body, tag=tag)
         else:
@@ -289,6 +322,9 @@ def compile_plan(data, device, state, role):
         final_order = [f'{i["rule"]["acl"]} / {i["rule"]["sequence"]}: {i["label"]}' for i in sorted(items, key=lambda i:(i['rule']['acl'], i['rule']['sequence']))]
         warnings.append('Existing ACL bindings and implicit deny remain unchanged. All attachment points may be affected. Cisco running configuration is not saved to startup automatically.')
         warnings.append('Cisco traceability uses the immutable receipt, ACL name, sequence and observed rule body. No ownership comment is written on the device; a receipt match is not proof of exclusive ownership.')
+        for name in created:
+            warnings.append(f'New access list {name} is not attached to any interface or line and has no effect until it is bound. '
+                            'Once bound, IOS denies all traffic that no entry permits.')
     risk = max((i['risk'] for i in items), key=RANK.get)
     if role=='OPERATOR' and (risk in ('HIGH', 'LOCKOUT') or any(i['rule']['service']=='custom' for i in items)):
         fail('An administrator must review custom or high-risk firewall changes.', 'FORBIDDEN', 403)
@@ -307,7 +343,18 @@ def compile_plan(data, device, state, role):
     return dict(version=1, device=device.public(), target=target_identity(device), source_ip=source,
                 source_ip_hint=state['source_ip_hint'], baseline=state, items=items, risk=risk,
                 final_order=final_order, warnings=warnings, automatic_rollback=False,
-                recovery=[cmd for item in reversed(items) for cmd in item['rollback']])
+                recovery=unique_commands(cmd for item in reversed(items) for cmd in item['rollback']))
+
+
+def unique_commands(commands):
+    """Keep the first occurrence of repeated recovery commands, e.g. one ACL removal."""
+    seen, result = set(), []
+    for command in commands:
+        if command.startswith('no ip access-list extended ') and command in seen:
+            continue
+        seen.add(command)
+        result.append(command)
+    return result
 
 
 def public_review(row):
@@ -377,6 +424,10 @@ def verify(plan, after):
             return False, outcomes
         if after.get('unsupported_acls',[])!=plan['baseline'].get('unsupported_acls',[]):
             return False, outcomes
+        if 'acl_names' in after and 'acl_names' in plan['baseline']:
+            created = {i['rule']['acl'] for i in plan['items'] if i['rule'].get('create_acl')}
+            if set(after['acl_names']) != set(plan['baseline']['acl_names']) | created:
+                return False, outcomes
         for acl, entries in plan['baseline']['acls'].items():
             for entry in entries:
                 if not any(r['sequence']==entry['sequence'] and r['body']==entry['body'] for r in after['acls'].get(acl, [])):
