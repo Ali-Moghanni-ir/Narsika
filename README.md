@@ -1,7 +1,5 @@
 # Narsika
 
-> **Local review build — Scheduled Tasks & Firewall Control.** This package includes the complete Narsika application, scheduled backups and Playbooks, refined desktop workspace, target-aware queue, staged firewall workflow and native-install recovery. It has not been published to GitHub. Start with the [Scheduled Tasks guide in Persian](docs/SCHEDULES-FA.md) or the [Firewall review and test guide](docs/FIREWALL-REVIEW.md); use a separate lab installation for first tests.
-
 <p align="center">
   <img src="app/static/img/narsika-logo-180.png" width="180" height="180" alt="Narsika logo">
 </p>
