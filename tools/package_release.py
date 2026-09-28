@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 import zipfile
 ROOT=Path(__file__).resolve().parents[1]
-ROOT_FILES={'.gitattributes','.dockerignore','.env.example','.gitignore','Dockerfile','LICENSE','README.md','app.py','ansible.cfg','configure.py','constraints.txt','docker-compose.yml','gunicorn.conf.py','inventory.ini','pytest.ini','requirements-dev.txt','requirements.txt','run_linux.sh','run_windows.bat','runtime.py','wsgi.py'}
+ROOT_FILES={'.gitattributes','.dockerignore','.env.example','.gitignore','CHANGELOG.md','CONTRIBUTING.md','Dockerfile','LICENSE','README.md','SECURITY.md','app.py','ansible.cfg','configure.py','constraints.txt','docker-compose.yml','gunicorn.conf.py','inventory.ini','pytest.ini','requirements-dev.txt','requirements.txt','run_linux.sh','run_windows.bat','runtime.py','wsgi.py'}
 DIRECTORIES={'app','Playbooks','callback_plugins','docs','tools','tests','deploy','.github'}
 
 

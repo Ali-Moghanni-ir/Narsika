@@ -208,7 +208,7 @@ def test_final_readme_and_brand_assets_are_packaged(admin, client):
     assert 'README.md' in paths and 'README-GITHUB.md' not in paths
     assert not (ROOT / 'README-GITHUB.md').exists()
     assert 'storage,codes' not in readme and '-+-' not in readme
-    assert '## Documentation' not in readme
+    assert '## Documentation' in readme and 'docs/INSTALLATION.md' in readme
     assert '## License' in readme and '(LICENSE)' in readme
     assert 'LICENSE' in paths and 'callback_plugins/LICENSE' in paths
     assert 'FSL-1.1-ALv2' in (ROOT / 'LICENSE').read_text()
@@ -217,7 +217,10 @@ def test_final_readme_and_brand_assets_are_packaged(admin, client):
     assert 'run_windows.bat -WSL' in readme and 'bash run_linux.sh' in readme
     links = re.findall(r'!\[[^\]]*\]\(([^)]+)\)|<img[^>]*src="([^"]+)"', readme)
     for markdown, html in links:
-        assert (markdown or html) in paths
+        target = markdown or html
+        # Status badges are hosted externally; every local image must be packaged.
+        if not target.startswith('https://'):
+            assert target in paths
     for filename, expected in [('narsika-relay.png', (1024, 1024)), ('narsika-logo-180.png', (180, 180))]:
         raw = (ROOT / 'app/static/img' / filename).read_bytes()
         assert raw[:8] == b'\x89PNG\r\n\x1a\n'

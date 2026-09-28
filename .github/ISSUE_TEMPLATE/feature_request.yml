@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an improvement or a new capability.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation on your network and why current features are not enough.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like Narsika to do?
+    validations:
+      required: true
+  - type: input
+    id: platforms
+    attributes:
+      label: Platforms involved
+      placeholder: e.g. Cisco IOS XE, RouterOS 7, Ubuntu servers
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered

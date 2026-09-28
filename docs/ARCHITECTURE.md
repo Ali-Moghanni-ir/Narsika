@@ -1,57 +1,125 @@
-# Runtime architecture
+# Architecture
 
-## Release-owned Ansible
+Narsika is a single-server Flask application. This document explains how its parts fit together and the rules each part relies on. For endpoint details see [API](API.md); for Ansible packaging see [Ansible dependencies](ANSIBLE-DEPENDENCIES.md).
 
-The application, native installer and Docker build share pinned `ansible-core 2.20.9` and a four-collection artifact lock. Python controllers are restricted to 3.12–3.14. `tools/install_collections.py` verifies artifact SHA-256, installs with offline Galaxy into a temporary sibling directory, validates dependency closure and plugin loading, applies the existing known-hosts adaptation, then atomically publishes the collection root. No Galaxy API version resolution or global response cache is used. Native playbook syntax checks complete before service replacement.
+## Overview
 
-`tools/ansible_environment.py` chooses the release's real `.venv/collections` root and its own Python environment's Ansible executable. Real release paths are captured at import so changing the `current` symlink does not redirect a running worker to new dependencies. Job subprocesses retain their private config, callback and SSH trust while receiving a singular `ANSIBLE_COLLECTIONS_PATH` and disabled sys.path collection scanning. Docker uses image-owned `/opt/ansible/collections`. The scheduler uses this same job runner. See [versions, recovery and verification](ANSIBLE-DEPENDENCIES.md).
+```mermaid
+flowchart LR
+    B["Browser<br>Jinja pages + vanilla JS"] -->|cookie session, CSRF| F["Flask app<br>routes.py · api.py<br>firewall_api.py · schedules_api.py"]
+    F --> DB[("SQLite (WAL)<br>+ encrypted files")]
+    F --> Q["Operation queue<br>services/jobs.py"]
+    S["Scheduler<br>services/scheduling.py"] --> Q
+    Q --> A["Ansible subprocess<br>private inventory + callback"]
+    F -->|on-demand reads| N["Netmiko SSH · SNMPv3<br>services/network.py · telemetry.py"]
+    A --> D["Cisco / MikroTik"]
+    N --> D
+```
 
-## Scheduled Tasks
+| Layer | Implementation |
+|---|---|
+| Web | Flask application factory (`app/__init__.py`), server-rendered Jinja pages, one custom stylesheet set and vanilla JavaScript modules. No SPA, build tool or CDN. |
+| API | JSON under `/api` with a uniform envelope, cookie authentication and CSRF header. |
+| Data | SQLAlchemy models on SQLite with WAL and foreign keys. |
+| Work | An in-process job executor and scheduler; Ansible runs as a subprocess. |
+| Devices | Netmiko over SSH for reads, Ansible `network_cli` for changes, pysnmp for SNMPv3. |
 
-`app/services/scheduling.py` runs approximately once per second inside the existing job dispatcher, which already holds the installation's exclusive worker file lock. SQLite stores rules, encrypted definitions, next due UTC instants, immutable occurrence metadata and references to normal operation runs. A SQLite write reservation creates the unique occurrence, all target runs and the next due time in one transaction; interruption before commit leaves none of those writes. A process lock serializes schedule mutations locally, while uniqueness constraints and SQLite transactions remain the persistence boundary.
+## Process model
 
-The scheduler never contacts equipment itself. The existing queue performs Backup/Playbook execution, including target and owner validation. Scheduled parameters capture task revision as well as the existing target and actor-session identities. Before execution, current scheduled target fingerprints and the selected Playbook source hash are checked again. Pausing affects future dispatch only; editing invalidates still-queued work from the previous revision. A normal password change does not permanently invalidate the schedule, but queued jobs still enforce their captured actor-session version.
+- One Gunicorn worker process with **eight request threads** serves the web app.
+- The same process runs a **two-thread operation executor** and the scheduler.
+- A file lock (`worker.lock` in the data directory) ensures only one dispatcher runs per data directory. Never enable Gunicorn preload, reload, multiple workers or replicas against the same SQLite data.
 
-Rules use standard-library `zoneinfo` and OS `tzdata`. Daily/weekly times are wall-clock times in the chosen zone; interval rules advance by elapsed UTC hours. Nonexistent DST times are skipped and repeated wall times use the first occurrence. A 60-second dispatch grace applies. Overdue periods are summarized by a MISSED receipt and advanced to the next future time, without replay. Overlap and insufficient queue capacity are explicitly skipped. Failed commands are never automatically retried. No schedule, daily backup, or retention policy is seeded.
+This keeps installation to one service with no Redis, Celery or external database. The trade-off is a single-node design: capacity should be measured on the target network before scaling decisions.
 
-Schedules support at most 32 fixed device targets per task and 200 definitions per installation. All-target queue reservation respects the existing 32-run queue limit. Occurrence history is paginated; overview queries omit full run output. Definition variables are encrypted at rest and returned only to the owner/admin on authorized detail reads. Viewer visibility is limited to summary/history information. Refer to [the schedule guide](SCHEDULES-FA.md) for operating and downgrade procedures.
+## Request path and guards
 
-## Existing application
+Every request passes through guards in the application factory:
 
-Current deployment/bootstrap changes are defined in RELEASE-NATIVE.md: native Ubuntu/systemd is primary, Windows uses Docker/WSL, and initial credentials are generated only by the offline terminal provisioner. Existing Flask/Jinja/SQLite and single-worker architecture remain. Management source checks, bounded on-demand sample coalescing and an atomic queue reservation were added without schema or runtime dependency additions.
+1. **Source allow-list** — clients outside `NARSIKA_WEB_NETWORKS` receive `403 SOURCE_NOT_ALLOWED`. Forwarded headers are ignored unless exactly one trusted proxy hop is configured.
+2. **Session validity** — a disabled account or a changed `session_version` (password reset, role change) ends the session.
+3. **CSRF** — every POST, PATCH and DELETE needs the `X-CSRFToken` header from the page's meta tag.
+4. **Role check** — endpoints declare `require('read' | 'operate' | 'admin')`; the UI only mirrors these server-side checks.
 
-Flask application factory → authenticated Jinja pages and `/api` → SQLAlchemy SQLite models and service modules. The accepted custom CSS and Vanilla JavaScript interface is retained; page scripts now use actual server responses. There is no SPA, frontend build tool, CDN, Redis, Celery or external service requirement.
+Errors carry a request ID. Tracebacks are logged with locations only, never exception values that might contain secrets.
 
-One Gunicorn worker process serves eight request threads. A two-thread operation executor in the same process dispatches jobs persisted in SQLite. A filesystem lock prevents starting a second operation dispatcher against the same data directory. Do not enable Gunicorn preload, reload, multiple workers, or multiple replicas against this SQLite volume. Queue capacity is bounded; long-running Ansible runs have a configured timeout and process-group cancellation.
+## Data model and migrations
 
-The dispatcher preserves submission order per device while allowing other targets to use free executor slots. A pending cancellation is settled without waiting for capacity. Only an explicitly marked connection-lock failure before network contact can return a run to the queue; ambiguous or partially executed commands are never automatically replayed. Health checks include the required dispatcher thread, and deployment submissions fail explicitly if it is stopped. This does not replace device-level outcome verification.
+`app/models.py` keeps the original `User`, `Group`, `Device` and `AuditLog` models and adds credential profiles, settings, audit events, operation runs, discovery runs, backups, artifacts, firewall reviews and scheduled tasks.
 
-Page bootstrap uses compact views, and run-history lists request summaries without loading full output. Existing full JSON contracts remain available. Inventory eager-loads group and credential metadata, avoiding one query per device relationship. Credential metadata-only edits preserve their encrypted secret revision; cache identities include the credential username and ciphertext so changing connection identity cannot reuse an older sample.
+- Device secrets live in encrypted credential profiles; job parameters, backups, artifacts and firewall receipts are encrypted with the installation's Fernet key.
+- Initialization is idempotent. Migrations are **additive only**: nothing is dropped. Before existing tables are changed, an authenticated, encrypted SQLite snapshot is written and verified.
+- A database with a newer schema version than the code is refused.
+- Legacy plaintext device passwords and raw audit output are moved into encrypted fields; `secure_delete`, `VACUUM` and WAL truncation remove the old bytes from the active database files.
 
-`app/models.py` retains original `User`, `Group`, `Device`, and `AuditLog` models and adds encrypted credential profiles, roles, settings, audit events, runs, discoveries, backups and artifacts. Initialization is idempotent. SQLite uses WAL and foreign keys; active device IPs are unique. An authenticated encrypted SQLite snapshot precedes additive changes to legacy tables. Existing encryption keys and duplicate IPs are validated before any migration write. No old column or table is dropped.
+See [Migration](MIGRATION.md) for importing older databases.
 
-Monitoring uses actual Netmiko SSH commands. Ping and authenticated management health are separate. Unsupported CPU, RAM, temperature, version or uptime values remain null. Interfaces prefer SNMPv3 authPriv when assigned; otherwise Cisco uses TextFSM, and RouterOS returns actual CLI link state. SNMP rates require two valid counter samples and reject restarts, counter resets, discontinuities and long gaps. Polling is initiated only from a visible monitoring page; no persistent telemetry daemon or fabricated historical series exists.
+## Operation queue
 
-Discovery probes only allowed IPv4 CIDRs within the configured size limit. A TCP/SSH banner is a candidate hint. Import requires a recently authenticated and verified Cisco or RouterOS identity; duplicate inventory IPs are skipped. SSH fingerprints are accepted only after an administrator explicitly verifies them, and changed trusted keys are rejected.
+`services/jobs.py` persists runs in SQLite (`PENDING → RUNNING → SUCCESS | FAILED | CANCELLED`, plus `INTERRUPTED` after a restart and firewall-specific outcomes).
 
-Ansible uses the selected host inventory, server-managed connection variables, host key checking, private temporary files and a filtered child environment. Secrets are absent from argv. Its callback emits module identifiers and execution state only; raw module results, task names and secret-bearing output are not placed in audit history. Uploaded YAML is trusted administrative code, with no arbitrary content sandbox or mandatory manifest. It can access resources available to the application OS account; use only trusted playbooks.
+- Submission order is preserved per device; other devices use free executor slots. Queue capacity is bounded (32 active or pending runs).
+- Queued runs record the target's connection identity and the actor's session version; if either changes before execution the run fails (`TARGET_CHANGED`, `AUTHORIZATION_CHANGED`).
+- Only a connection-lock failure *before* any network contact returns a run to the queue. Ambiguous or partially executed work is never replayed.
+- Cancelling stops the Ansible process group; commands already accepted by a device are not undone.
+- The health endpoint reports whether the dispatcher thread is alive, and new submissions are refused if it is not.
 
-Configuration backups and collected run artifacts are encrypted with the installation Fernet key and validated with SHA-256 on retrieval. Temporary execution artifacts are collected from `narsika_artifact_root`. Job parameters are encrypted in SQLite. Backups can contain sensitive configuration; only operators and administrators can read/download them. Plaintext export is intentional when an authorized user downloads a configuration.
+## Monitoring
 
-Archive operations preserve device/backup rows and files. Group archive is allowed when no active devices remain. User disabling invalidates existing sessions. The old audit model is retained, with historical event summaries included in the audit view. Legacy raw output moves into the encrypted_output column; plaintext device fields and the obsolete user hash are cleared after encrypted preservation. secure_delete, VACUUM and WAL truncation remove residual legacy bytes from the active SQLite files; unrelated external snapshots require separate owner storage management.
+Monitoring is **on demand**: samples are collected only while a monitoring page is visible, and there is no background telemetry daemon or stored history.
 
-Old source copies and cached bytecode are excluded from the release. Git history retains the original source. Compatibility launchers and all six original playbooks are present. Their canonical directory is Playbooks/Original; Linux/Docker provide the former lowercase path as a symlink. Offline terminal bootstrap precedes normal service startup. Gunicorn does not accept an environment-supplied initial password. Fresh configuration contains only keys and settings; no bootstrap cleanup is required. See OPERATIONS.md.
+- Health uses real SSH commands through Netmiko; ICMP reachability and authenticated health are reported separately. Values a platform does not provide stay `null` (shown as N/A).
+- Interfaces use SNMPv3 authPriv when a profile is assigned; otherwise Cisco output is parsed with TextFSM and RouterOS reports CLI link state.
+- Rates need two valid counter samples; resets, restarts, discontinuities and long gaps are rejected.
+- Concurrent viewers share a sample for up to four seconds. Cache identities include the target and credential, so changing either invalidates old samples.
 
-## Pinned Ansible transport compatibility fix
+## Discovery
 
-The installed `ansible-pylibssh 1.4.0` exposes `knownhosts` directly and does not consume the `config_file` keyword forwarded by `ansible.netcommon 8.6.2`. A loopback SSH test reproduced rejection of a key already trusted in Narsika's private file. `tools/patch_ansible.py` applies a six-line adaptation to the explicitly specified installed collection: it forwards the application-owned known-hosts path through the supported `knownhosts` argument. Host-key checking and rejection of unknown/changed keys stay enabled. The script checks the exact original source SHA-256 and refuses unfamiliar versions. Docker and the native launcher apply it after collection installation; it is idempotent. No global home directory or user SSH configuration is rewritten.
+Scans are limited to `NARSIKA_ALLOWED_NETWORKS` and `NARSIKA_SCAN_MAX_HOSTS` (≤ 256). An SSH banner only marks a candidate. Import requires a recent, authenticated verification of a Cisco or RouterOS identity; addresses already in inventory are skipped.
 
-Primary references consulted: [Ansible libssh options](https://docs.ansible.com/projects/ansible/latest/collections/ansible/netcommon/libssh_connection.html), [network_cli transport](https://docs.ansible.com/projects/ansible/latest/collections/ansible/netcommon/network_cli_connection.html). The compatibility difference was verified against the installed collection and the official PyPI 1.4.0 source archive, then tested against a local SSH fixture.
+## SSH trust
 
-Ansible persistent control sockets use a short private temporary directory, separate from potentially long installation/data paths. This avoids native Unix socket pathname limits. Normal Linux Unix-socket support is required for network_cli. The restricted authoring environment skips this test; it passes against a real loopback SSH server in GitHub Actions on Ubuntu.
+Narsika keeps its own `known_hosts` in the data directory. Unknown keys are never accepted automatically; an administrator verifies and trusts a fingerprint, and a changed key is rejected until re-verified. The same file is used by Netmiko and by Ansible.
 
-## Repair release boundaries
+`ansible-pylibssh 1.4.0` does not consume the `config_file` argument that `ansible.netcommon 8.6.2` forwards, which caused trusted keys to be rejected. `tools/patch_ansible.py` applies a small, hash-checked adaptation that passes Narsika's `known_hosts` through the supported `knownhosts` argument. Host-key checking stays enabled, and the script refuses collection versions it does not recognise.
 
-Queued jobs capture target connection identity and reject a changed target before execution. Failed or cancelled Ansible runs retain already-created artifacts. Abandoned private job directories are removed only after the exclusive worker lock is acquired. Retention is offline, previews by default, and requires an explicit policy age and --apply; it archives authenticated encrypted records/files before removing selected old data. No automatic telemetry process or new queue infrastructure is introduced.
+## Automation (Ansible)
 
-HTTPS integration uses an optional existing Nginx host proxy. Forwarded addresses are ignored by default; exactly one hop can be enabled when the application is reachable only through the proxy. See [Flask proxy guidance](https://flask.palletsprojects.com/en/stable/deploying/proxy_fix/) and [SQLite secure_delete](https://www.sqlite.org/pragma.html#pragma_secure_delete).
+- Each run gets a private temporary inventory and variables file, server-owned connection variables, host-key checking and a filtered environment. Secrets never appear in argv.
+- Each job uses the release's own Ansible executable and a single `ANSIBLE_COLLECTIONS_PATH`, with system-path collection scanning disabled; inherited global Ansible overrides are discarded. Release paths are captured at import, so switching the `current` release does not affect a running worker.
+- The `narsika_safe` callback emits only module names and state. Raw results, task names and secret-bearing output never reach the audit log.
+- Persistent control sockets use a short private temporary directory to stay under Unix socket path limits.
+- Uploaded Playbooks are **trusted administrator code**: YAML is validated, but there is no sandbox. A Playbook can use anything the service account can reach.
+- Artifacts are collected from `narsika_artifact_root`, encrypted and kept even when a run fails or is cancelled.
+
+## Firewall
+
+`services/firewall.py` compiles firewall *intents* into device commands through a review pipeline:
+
+1. **Read** — RouterOS `/ip firewall filter export terse`, or Cisco `show ip access-lists` plus the running configuration (for bindings and remarks). The parsed state has a fingerprint.
+2. **Compile** — validated intents become commands, expected results and recovery commands, with a risk level (LOW, MEDIUM, HIGH, LOCKOUT) computed from the change and Narsika's management source.
+3. **Receipt** — the plan is encrypted, checksummed and bound to the actor, session version, target identity, state fingerprint and a 10-minute expiry.
+4. **Apply** (worker) — re-check authorization, target and fingerprint; take a mandatory encrypted backup; re-check the fingerprint; run a fixed internal Playbook (`services/firewall_playbooks/`) that stops at the first failed entry.
+5. **Verify** — read the state again over a fresh SSH connection and compare it with the expected entries, placement and untouched baseline.
+
+The generic `/api/automation/runs` endpoint cannot submit firewall jobs, and new `acl` runs are refused: every filter change goes through this pipeline.
+
+## Scheduler
+
+`services/scheduling.py` runs about once per second inside the dispatcher, which already holds the worker lock.
+
+- Rules use `zoneinfo` with the OS `tzdata`. Daily and weekly rules follow wall-clock time in the chosen zone; interval rules advance by elapsed UTC hours.
+- One SQLite transaction creates the occurrence, all target runs and the next due time, so an interruption leaves none of them.
+- Missed windows produce a single `MISSED` record without replay; overlap and insufficient capacity are skipped explicitly.
+- The scheduler never talks to devices; it submits normal Backup or Playbook runs, which the queue validates like any other run. Before execution, target fingerprints and the Playbook's source hash are checked against the task definition.
+
+## Releases and packaging
+
+- `tools/package_release.py` builds a release ZIP from an explicit whitelist of files and directories, with a SHA-256 manifest.
+- Native installs are versioned under `/opt/narsika/releases/`; `/opt/narsika/current` points to the active one. Code and virtual environments are root-owned and read-only to the service account.
+- The first administrator is created by an offline terminal bootstrap before the service starts. Gunicorn never accepts an initial password from the environment.
+- Docker images pin the Python base image by digest and install the same checksum-locked collections.
+
+## References
+
+[Flask ProxyFix](https://flask.palletsprojects.com/en/stable/deploying/proxy_fix/) · [SQLite secure_delete](https://www.sqlite.org/pragma.html#pragma_secure_delete) · [Ansible libssh connection](https://docs.ansible.com/projects/ansible/latest/collections/ansible/netcommon/libssh_connection.html) · [Ansible network_cli](https://docs.ansible.com/projects/ansible/latest/collections/ansible/netcommon/network_cli_connection.html)
