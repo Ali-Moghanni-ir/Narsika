@@ -25,7 +25,7 @@ COPY --chown=root:root app ./app
 COPY --chown=root:root Playbooks ./Playbooks
 COPY --chown=root:root callback_plugins ./callback_plugins
 COPY --chown=root:root tools/maintenance.py tools/restore_snapshot.py tools/snapshot.py tools/bootstrap.py ./tools/
-COPY --chown=root:root runtime.py wsgi.py app.py gunicorn.conf.py ./
+COPY --chown=root:root LICENSE runtime.py wsgi.py app.py gunicorn.conf.py ./
 RUN ln -s Playbooks/Original /opt/narsika/playbooks
 USER narsika
 EXPOSE 8000
