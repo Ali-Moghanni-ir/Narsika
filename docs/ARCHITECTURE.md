@@ -1,10 +1,32 @@
 # Runtime architecture
 
+## Release-owned Ansible
+
+The application, native installer and Docker build share pinned `ansible-core 2.20.9` and a four-collection artifact lock. Python controllers are restricted to 3.12–3.14. `tools/install_collections.py` verifies artifact SHA-256, installs with offline Galaxy into a temporary sibling directory, validates dependency closure and plugin loading, applies the existing known-hosts adaptation, then atomically publishes the collection root. No Galaxy API version resolution or global response cache is used. Native playbook syntax checks complete before service replacement.
+
+`tools/ansible_environment.py` chooses the release's real `.venv/collections` root and its own Python environment's Ansible executable. Real release paths are captured at import so changing the `current` symlink does not redirect a running worker to new dependencies. Job subprocesses retain their private config, callback and SSH trust while receiving a singular `ANSIBLE_COLLECTIONS_PATH` and disabled sys.path collection scanning. Docker uses image-owned `/opt/ansible/collections`. The scheduler uses this same job runner. See [versions, recovery and verification](ANSIBLE-DEPENDENCIES.md).
+
+## Scheduled Tasks
+
+`app/services/scheduling.py` runs approximately once per second inside the existing job dispatcher, which already holds the installation's exclusive worker file lock. SQLite stores rules, encrypted definitions, next due UTC instants, immutable occurrence metadata and references to normal operation runs. A SQLite write reservation creates the unique occurrence, all target runs and the next due time in one transaction; interruption before commit leaves none of those writes. A process lock serializes schedule mutations locally, while uniqueness constraints and SQLite transactions remain the persistence boundary.
+
+The scheduler never contacts equipment itself. The existing queue performs Backup/Playbook execution, including target and owner validation. Scheduled parameters capture task revision as well as the existing target and actor-session identities. Before execution, current scheduled target fingerprints and the selected Playbook source hash are checked again. Pausing affects future dispatch only; editing invalidates still-queued work from the previous revision. A normal password change does not permanently invalidate the schedule, but queued jobs still enforce their captured actor-session version.
+
+Rules use standard-library `zoneinfo` and OS `tzdata`. Daily/weekly times are wall-clock times in the chosen zone; interval rules advance by elapsed UTC hours. Nonexistent DST times are skipped and repeated wall times use the first occurrence. A 60-second dispatch grace applies. Overdue periods are summarized by a MISSED receipt and advanced to the next future time, without replay. Overlap and insufficient queue capacity are explicitly skipped. Failed commands are never automatically retried. No schedule, daily backup, or retention policy is seeded.
+
+Schedules support at most 32 fixed device targets per task and 200 definitions per installation. All-target queue reservation respects the existing 32-run queue limit. Occurrence history is paginated; overview queries omit full run output. Definition variables are encrypted at rest and returned only to the owner/admin on authorized detail reads. Viewer visibility is limited to summary/history information. Refer to [the schedule guide](SCHEDULES-FA.md) for operating and downgrade procedures.
+
+## Existing application
+
 Current deployment/bootstrap changes are defined in RELEASE-NATIVE.md: native Ubuntu/systemd is primary, Windows uses Docker/WSL, and initial credentials are generated only by the offline terminal provisioner. Existing Flask/Jinja/SQLite and single-worker architecture remain. Management source checks, bounded on-demand sample coalescing and an atomic queue reservation were added without schema or runtime dependency additions.
 
 Flask application factory → authenticated Jinja pages and `/api` → SQLAlchemy SQLite models and service modules. The accepted custom CSS and Vanilla JavaScript interface is retained; page scripts now use actual server responses. There is no SPA, frontend build tool, CDN, Redis, Celery or external service requirement.
 
 One Gunicorn worker process serves eight request threads. A two-thread operation executor in the same process dispatches jobs persisted in SQLite. A filesystem lock prevents starting a second operation dispatcher against the same data directory. Do not enable Gunicorn preload, reload, multiple workers, or multiple replicas against this SQLite volume. Queue capacity is bounded; long-running Ansible runs have a configured timeout and process-group cancellation.
+
+The dispatcher preserves submission order per device while allowing other targets to use free executor slots. A pending cancellation is settled without waiting for capacity. Only an explicitly marked connection-lock failure before network contact can return a run to the queue; ambiguous or partially executed commands are never automatically replayed. Health checks include the required dispatcher thread, and deployment submissions fail explicitly if it is stopped. This does not replace device-level outcome verification.
+
+Page bootstrap uses compact views, and run-history lists request summaries without loading full output. Existing full JSON contracts remain available. Inventory eager-loads group and credential metadata, avoiding one query per device relationship. Credential metadata-only edits preserve their encrypted secret revision; cache identities include the credential username and ciphertext so changing connection identity cannot reuse an older sample.
 
 `app/models.py` retains original `User`, `Group`, `Device`, and `AuditLog` models and adds encrypted credential profiles, roles, settings, audit events, runs, discoveries, backups and artifacts. Initialization is idempotent. SQLite uses WAL and foreign keys; active device IPs are unique. An authenticated encrypted SQLite snapshot precedes additive changes to legacy tables. Existing encryption keys and duplicate IPs are validated before any migration write. No old column or table is dropped.
 
