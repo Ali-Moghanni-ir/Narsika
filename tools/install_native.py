@@ -6,6 +6,7 @@ import ipaddress
 import os
 from pathlib import Path
 import pwd
+import json
 import secrets
 import shutil
 import socket
@@ -14,8 +15,8 @@ import sys
 import time
 import urllib.request
 
-if sys.version_info < (3, 12):
-    raise SystemExit('Native installation requires Python 3.12 or newer.')
+if sys.version_info < (3, 12) or sys.version_info >= (3, 15):
+    raise SystemExit('Native installation requires Python 3.12, 3.13 or 3.14 (ansible-core 2.20).')
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = Path('/opt/narsika')
@@ -25,6 +26,7 @@ UNIT = Path('/etc/systemd/system/narsika.service')
 ADMIN_COMMAND = Path('/usr/local/bin/narsika-admin')
 sys.path.insert(0, str(ROOT / 'tools'))
 from package_release import release_files
+import dependencies
 
 
 def run(*args, **kwargs):
@@ -48,15 +50,39 @@ def management_networks(value):
     return result
 
 
-def firewall_commands(networks, port):
-    """Insert a port-specific deny first, then trusted sources ahead of it."""
-    commands = [['ufw', 'insert', '1', 'deny', 'proto', 'tcp', 'from', 'any',
-                 'to', 'any', 'port', str(port), 'comment', 'narsika-web-boundary']]
-    for network in networks:
-        commands.append(['ufw', 'insert', '1', 'allow', 'proto', 'tcp', 'from',
+def firewall_commands(networks, port, has_rules=True):
+    """Prepend per address family, including empty or inactive stored rulesets.
+
+    has_rules is retained for callers of the earlier helper; no status parsing
+    is necessary. UFW status omits stored rules when the firewall is inactive.
+    """
+    deny = ['ufw', 'prepend']
+    deny.extend(['deny', 'proto', 'tcp', 'from', 'any', 'to', 'any', 'port',
+                 str(port), 'comment', 'narsika-web-boundary'])
+    commands = [deny]
+    for network in reversed(networks):
+        commands.append(['ufw', 'prepend', 'allow', 'proto', 'tcp', 'from',
                          network, 'to', 'any', 'port', str(port),
                          'comment', 'narsika-management'])
     return commands
+
+
+def restore_deployment(previous, old_files, release):
+    """Restore prior launch files; retain newly created artifacts for diagnosis."""
+    recovery = release / 'failed-deployment'
+    recovery.mkdir(exist_ok=True, mode=0o700)
+    for path, content in old_files.items():
+        if content is not None:
+            write_private(path, content, mode=0o755 if path == ADMIN_COMMAND else 0o644)
+        elif path.exists():
+            shutil.move(str(path), str(recovery / path.name))
+    current = BASE / 'current'
+    if previous:
+        link = BASE / ('rollback-' + secrets.token_hex(4))
+        link.symlink_to(previous)
+        os.replace(link, current)
+    elif current.is_symlink() and current.resolve() == release.resolve():
+        os.replace(current, recovery / 'current')
 
 
 def write_private(path, content, uid=0, gid=0, mode=0o640):
@@ -106,6 +132,8 @@ def service_environment(release):
     return {**os.environ, 'NARSIKA_ENV_FILE': str(CONFIG), 'NARSIKA_DATA_DIR': str(DATA),
             'NARSIKA_BACKUP_DIR': str(DATA / 'backups'),
             'ANSIBLE_COLLECTIONS_PATH': str(release / '.venv/collections'),
+            'ANSIBLE_COLLECTIONS_SCAN_SYS_PATH': 'False',
+            'ANSIBLE_CONFIG': str(release / 'ansible.cfg'),
             'PATH': str(release / '.venv/bin') + ':/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
             'PYTHONDONTWRITEBYTECODE': '1'}
 
@@ -121,11 +149,20 @@ def deploy():
 
 
 def install():
+    download_options = dependencies.settings()
     if DATA.is_symlink() or CONFIG.is_symlink() or CONFIG.parent.is_symlink():
         raise SystemExit('Native data/configuration paths must be real paths, not symbolic links.')
     if (ROOT / 'instance/narsika.db').exists() and not (DATA / 'narsika.db').exists():
         raise SystemExit('A local legacy database exists. Follow docs/MIGRATION.md before installing; it was not replaced.')
     values = read_config()
+    if (DATA / 'narsika.db').exists() and not CONFIG.is_file():
+        raise SystemExit('Existing data has no configuration. Restore /etc/narsika/narsika.env with its original encryption key; no new keys were generated.')
+    current = BASE / 'current'
+    previous = current.resolve(strict=True) if current.is_symlink() else None
+    if current.exists() and previous is None:
+        raise SystemExit('/opt/narsika/current is not an installer-managed symlink.')
+    if previous and not previous.is_relative_to(BASE / 'releases'):
+        raise SystemExit('The current release is outside the installer-managed releases directory.')
     if values and (values.get('NARSIKA_DATA_DIR', str(DATA)) != str(DATA) or
                    values.get('NARSIKA_BACKUP_DIR', str(DATA / 'backups')) != str(DATA / 'backups')):
         raise SystemExit('Custom data paths require an explicit migration; existing paths were preserved.')
@@ -133,9 +170,9 @@ def install():
         port = int(input('HTTP port [8000]: ').strip() or values.get('NARSIKA_PORT', '8000'))
         if not 1024 <= port <= 65535:
             raise ValueError('Use a port from 1024 to 65535.')
-        previous = values.get('NARSIKA_WEB_NETWORKS', '')
+        previous_networks = values.get('NARSIKA_WEB_NETWORKS', '')
         prompt = 'Management IPv4 CIDR(s), comma separated'
-        networks = management_networks(input(prompt + (f' [{previous}]' if previous else '') + ': ').strip() or previous)
+        networks = management_networks(input(prompt + (f' [{previous_networks}]' if previous_networks else '') + ': ').strip() or previous_networks)
     except ValueError as error:
         raise SystemExit(str(error)) from None
     if not networks:
@@ -184,19 +221,15 @@ def install():
     (release / 'playbooks').symlink_to('Playbooks/Original')
     run(sys.executable, '-m', 'venv', release / '.venv')
     python = release / '.venv/bin/python'
-    run(python, '-m', 'pip', 'install', '--disable-pip-version-check',
-        '--timeout', '120', '--retries', '10', '-r', release / 'requirements.txt', cwd=release)
-    run(python, '-m', 'pip', 'check')
-    run(release / '.venv/bin/ansible-galaxy', 'collection', 'install', '-r',
-        release / 'Playbooks/requirements.yml', '-p', release / '.venv/collections')
-    run(python, release / 'tools/patch_ansible.py', release / '.venv/collections')
-    previous = (BASE / 'current').resolve() if (BASE / 'current').is_symlink() else None
-    if (BASE / 'current').exists() and not previous:
-        raise SystemExit('/opt/narsika/current is not an installer-managed symlink.')
+    selected = dependencies.install(python, release / 'requirements.txt', download_options)
+    write_private(release / 'dependency-source.json', json.dumps(selected, indent=2) + '\n', mode=0o600)
+    run(python, release / 'tools/install_collections.py', '--collections-path', release / '.venv/collections')
+    run(python, release / 'tools/check_playbooks.py', env=service_environment(release))
     old_config = CONFIG.read_text() if CONFIG.exists() else None
     old_unit = UNIT.read_text() if UNIT.exists() else None
     old_admin = ADMIN_COMMAND.read_text() if ADMIN_COMMAND.exists() else None
     switched = False
+    stage = 'configuration'
     try:
         if active:
             run('systemctl', 'stop', 'narsika')
@@ -217,57 +250,57 @@ def install():
                       NARSIKA_DATA_DIR=str(DATA), NARSIKA_BACKUP_DIR=str(DATA / 'backups'))
         write_private(CONFIG, ''.join(k + '=' + v + '\n' for k, v in values.items()), gid=account.pw_gid)
         run(python, release / 'configure.py', '--destination', CONFIG, '--check')
+        stage = 'administrator bootstrap'
         run('runuser', '-u', 'narsika', '--', python, release / 'tools/bootstrap.py',
             env=service_environment(release))
-        link = BASE / ('current.new-' + secrets.token_hex(4))
-        link.symlink_to(release)
-        os.replace(link, BASE / 'current')
-        switched = True
-        write_private(UNIT, (release / 'deploy/narsika.service').read_text(), mode=0o644)
-        write_private(ADMIN_COMMAND,
-                      '#!/bin/sh\nexec /usr/bin/python3 /opt/narsika/current/tools/admin_native.py "$@"\n',
-                      mode=0o755)
-        run('systemctl', 'daemon-reload')
-        run('systemctl', 'enable', '--now', 'narsika')
-        health(port)
+        stage = 'host firewall'
         if enable_firewall:
             ssh = os.getenv('SSH_CONNECTION', '').split()
             if len(ssh) == 4:
                 source = str(ipaddress.ip_address(ssh[0]))
                 ssh_port = int(ssh[3])
-                run('ufw', 'allow', 'proto', 'tcp', 'from', source, 'to', 'any', 'port', ssh_port,
+                run('ufw', 'prepend', 'allow', 'proto', 'tcp', 'from', source, 'to', 'any', 'port', ssh_port,
                     'comment', 'narsika-preserve-current-ssh')
             # Preserve configured local SSH listeners, including non-standard ports.
             listeners = run('ss', '-H', '-lntp', capture_output=True, text=True).stdout
             for line in listeners.splitlines():
                 if 'sshd' in line:
                     ssh_port = int(line.split()[3].rsplit(':', 1)[1])
-                    run('ufw', 'allow', str(ssh_port) + '/tcp', 'comment', 'narsika-preserve-ssh')
+                    run('ufw', 'prepend', 'allow', str(ssh_port) + '/tcp', 'comment', 'narsika-preserve-ssh')
         for command in firewall_commands(networks, port):
             run(*command)
         if enable_firewall:
             run('ufw', '--force', 'enable')
         run('ufw', 'status')
+        stage = 'service activation'
+        link = BASE / ('current.new-' + secrets.token_hex(4))
+        link.symlink_to(release)
+        os.replace(link, BASE / 'current')
+        switched = True
+        write_private(UNIT, (release / 'deploy/narsika.service').read_text(), mode=0o644)
+        write_private(ADMIN_COMMAND,
+                      '#!/bin/sh\nexport PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\nexec /usr/bin/python3 /opt/narsika/current/tools/admin_native.py "$@"\n',
+                      mode=0o755)
+        run('systemctl', 'daemon-reload')
+        run('systemctl', 'enable', '--now', 'narsika')
+        stage = 'service health check'
+        health(port)
     except BaseException:
         if switched:
             subprocess.run(['systemctl', 'stop', 'narsika'])
             if not enabled:
                 subprocess.run(['systemctl', 'disable', 'narsika'])
-        if previous and switched:
-            link = BASE / ('rollback-' + secrets.token_hex(4))
-            link.symlink_to(previous)
-            os.replace(link, BASE / 'current')
         if old_config is not None:
             write_private(CONFIG, old_config, gid=account.pw_gid)
-        if old_unit is not None:
-            write_private(UNIT, old_unit, mode=0o644)
-        if old_admin is not None:
-            write_private(ADMIN_COMMAND, old_admin, mode=0o755)
+        if switched:
+            restore_deployment(previous, {UNIT: old_unit, ADMIN_COMMAND: old_admin}, release)
         subprocess.run(['systemctl', 'daemon-reload'])
         if active:
             subprocess.run(['systemctl', 'start', 'narsika'])
-        print('Deployment failed. Previous release/config restored where present. Data, staged releases and firewall rules are preserved.', file=sys.stderr)
+        write_private(release / 'deployment-status.json', json.dumps({'status': 'failed', 'stage': stage})+'\n', mode=0o600)
+        print('Deployment failed at '+stage+'. Previous release/config restored where present. Data, keys, accounts, staged releases and firewall rules are preserved. Host firewall changes are not rolled back automatically.', file=sys.stderr)
         raise
+    write_private(release / 'deployment-status.json', json.dumps({'status': 'healthy'})+'\n', mode=0o600)
     addresses = run('hostname', '-I', capture_output=True, text=True).stdout.split()
     print('\nNarsika is healthy. HTTP is unencrypted; use only a trusted management LAN.')
     for address in addresses:
@@ -280,5 +313,5 @@ def install():
 if __name__ == '__main__':
     try:
         deploy()
-    except (subprocess.CalledProcessError, OSError, RuntimeError) as error:
+    except (subprocess.CalledProcessError, OSError, RuntimeError, ValueError) as error:
         raise SystemExit('Installation stopped: ' + str(error)) from None

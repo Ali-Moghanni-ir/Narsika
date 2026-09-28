@@ -30,10 +30,16 @@ def test_management_scope_rejects_unsafe_or_invalid_input(value):
 def test_firewall_is_scoped_without_reset_or_interface_restriction():
     networks=management_networks('10.1.2.0/24,192.168.50.0/24')
     commands=firewall_commands(networks,8123)
-    assert commands[0][3]=='deny'
-    assert commands[-1][3]=='allow'
+    assert commands[0][:3]==['ufw','prepend','deny']
+    assert commands[-1][:3]==['ufw','prepend','allow']
     assert all('8123' in c and 'reset' not in c and 'delete' not in c and 'on' not in c for c in commands)
     assert all(c[c.index('to')+1]=='any' for c in commands)
+
+
+def test_firewall_bootstraps_an_empty_ufw_ruleset_before_inserting_allows():
+    commands=firewall_commands(['10.1.2.0/24'],8123,has_rules=False)
+    assert commands[0][:3]==['ufw','prepend','deny']
+    assert commands[1][:3]==['ufw','prepend','allow']
 
 
 def test_native_is_default_and_docker_remains_explicit():
@@ -196,7 +202,7 @@ def test_native_failed_upgrade_restores_code_config_and_preserves_data(tmp_path,
     commands=[]
     def command(args,**kwargs):
         commands.append([str(a) for a in args])
-        if args[0]=='ufw' and args[1]=='insert' and failure=='firewall':
+        if args[0]=='ufw' and args[1]=='prepend' and failure=='firewall':
             raise subprocess.CalledProcessError(1,args)
         if args[:2]==['systemctl','is-enabled']:
             return SimpleNamespace(returncode=0 if enabled else 1,stdout='')
@@ -210,7 +216,7 @@ def test_native_failed_upgrade_restores_code_config_and_preserves_data(tmp_path,
     assert config.read_text()==original
     assert unit.read_text()=='original service definition'
     assert admin_command.read_text()=='original admin command'
-    assert (['systemctl','disable','narsika'] in commands) is not enabled
+    assert (['systemctl','disable','narsika'] in commands) == (not enabled and failure=='health')
     assert (data/'narsika.db').read_bytes()==b'preserve-existing-data'
     assert len(list((base/'releases').iterdir()))==2
     assert commands[-1]==['systemctl','start','narsika']

@@ -14,6 +14,8 @@ Environment=NARSIKA_ENV_FILE=/etc/narsika/narsika.env
 Environment=NARSIKA_DATA_DIR=/var/lib/narsika
 Environment=NARSIKA_BACKUP_DIR=/var/lib/narsika/backups
 Environment=ANSIBLE_COLLECTIONS_PATH=/opt/narsika/current/.venv/collections
+Environment=ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=False
+Environment=ANSIBLE_CONFIG=/opt/narsika/current/ansible.cfg
 Environment=PATH=/opt/narsika/current/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1

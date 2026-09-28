@@ -8,5 +8,5 @@ netmiko==4.7.0
 pysnmp==7.1.29
 PyYAML==6.0.3
 gunicorn==26.2.0
-ansible-core==2.19.12
+ansible-core==2.20.9
 ansible-pylibssh==1.4.0
