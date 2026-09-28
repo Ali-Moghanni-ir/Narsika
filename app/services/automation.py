@@ -7,6 +7,7 @@ import signal
 import subprocess
 import tempfile
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from flask import current_app
 import yaml
@@ -15,6 +16,7 @@ from ..security import decrypt,fail,integer,text,address
 from . import catalog
 from .network import secret,known_path,device_lock
 from .backups import capture,store_backup
+from tools.ansible_environment import environment as ansible_environment, executable as ansible_executable
 
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -66,24 +68,28 @@ def configuration_play(kind,p,device):
 
 def safe_environment(tmp,config,control_dir):
     env={k:v for k,v in os.environ.items() if k in ('PATH','LANG','LC_ALL','VIRTUAL_ENV','PYTHONPATH','SSL_CERT_FILE','ANSIBLE_COLLECTIONS_PATH')}
+    env=ansible_environment(config=config,state=tmp/'ansible-home',base=env)
     env.update(ANSIBLE_CONFIG=str(config),ANSIBLE_LOCAL_TEMP=str(tmp/'local'),ANSIBLE_REMOTE_TEMP='/tmp/.ansible-narsika',
         ANSIBLE_PERSISTENT_CONTROL_PATH_DIR=str(control_dir),ANSIBLE_STDOUT_CALLBACK='narsika_safe',
         ANSIBLE_CALLBACK_PLUGINS=str(ROOT/'callback_plugins'),ANSIBLE_LIBSSH_LOOK_FOR_KEYS='False',ANSIBLE_NOCOLOR='1',ANSIBLE_DISPLAY_ARGS_TO_STDOUT='false',
         NARSIKA_ANSIBLE_KNOWN_HOSTS=str(known_path()),ANSIBLE_HOST_KEY_CHECKING='True',ANSIBLE_LIBSSH_HOST_KEY_AUTO_ADD='False',ANSIBLE_LIBSSH_HOST_KEY_CHECKING='True')
     return env
 
-def run_ansible(run,params,device):
-    executable=shutil.which('ansible-playbook')
+def run_ansible(run,params,device,*,lock_held=False):
+    executable=ansible_executable('ansible-playbook')
     if not executable or os.name!='posix':fail('Ansible requires the Linux/Docker runtime.','CAPABILITY_UNAVAILABLE',503)
     values=secret(device.credential)
-    with device_lock(device.id):
+    with (nullcontext() if lock_held else device_lock(device.id)):
         address(device.ip_address)
         # Capture independently of custom playbook behavior for managed configuration workflows.
         if run.kind in ('vlan','acl'):
             capture(device,run.id);db.session.commit()
         with tempfile.TemporaryDirectory(prefix='job-',dir=Path(current_app.config['DATA_DIR'])/'runs') as directory, tempfile.TemporaryDirectory(prefix='nsk-') as control_directory:
             tmp=Path(directory)
-            if run.kind=='playbook':
+            if run.kind=='firewall':
+                playpath=Path(__file__).parent/'firewall_playbooks'/(device.platform+'.yml')
+                variables={'firewall_items':params['items']}
+            elif run.kind=='playbook':
                 book=db.session.get(Playbook,params['playbook_id'])
                 if not book:fail('Playbook is unavailable.','NOT_FOUND',404)
                 playpath=catalog.source(book)

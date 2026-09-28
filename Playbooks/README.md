@@ -26,16 +26,20 @@
 - Cisco IOS/IOS XE؛ عملیات VLAN/access port برای switch دارای قابلیت L2 است، نه هر Router سیسکو. متن خروجی preflight باید با نسخهٔ تجهیز آزمایش شود.
 - فایل‌های MikroTik برای **RouterOS 7** هستند. قبل از export/تغییر نسخهٔ major بررسی می‌شود. RouterOS 6 تحت پوشش این بسته نیست.
 
-داخل همین پوشه، در محیط مجازیِ کنترلر:
+از ریشهٔ پروژه، با Python نسخهٔ 3.12، 3.13 یا 3.14:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
-ansible-galaxy collection install -r requirements.yml
+python tools/install_collections.py
+export ANSIBLE_COLLECTIONS_PATH="$PWD/.venv/collections"
+export ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=False
+python tools/install_collections.py --verify-only
+cd Playbooks
 ```
 
-نصب فقط برای اجرای پلی‌بوک است. نسخه‌های قفل‌شدهٔ collection از مستندات رسمی بررسی شده‌اند؛ سازگاری عملی این ترکیب در محیط تست فعلی تأیید نشده است. بعد از نصب نسخه‌های حل‌شده را با `ansible --version` و `ansible-galaxy collection list` ثبت کنید.
+نصب‌کننده نسخه و SHA-256 چهار artifact رسمی را کنترل می‌کند و آن‌ها را بدون resolver آنلاین Galaxy در محیط همان پروژه نصب می‌کند. بررسی syntax و بارگذاری plugin جای آزمایش روی تجهیز واقعی را نمی‌گیرد. جزئیات نسخه‌ها، نصب آفلاین و محدودیت‌های تست در `../docs/ANSIBLE-DEPENDENCIES.md` ثبت شده است.
 
 از `inventory.example.yml` یک کپی برای محیط خود بسازید و IP/usernameها را اصلاح کنید. آدرس‌های `192.0.2.0/24` و `198.51.100.0/24` در مثال‌ها برای مستندسازی‌اند و شبکهٔ شما نیستند. هیچ password واقعی یا نمونهٔ پیش‌فرض داخل inventory قرار داده نشده است.
 

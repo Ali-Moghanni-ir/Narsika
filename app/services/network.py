@@ -18,12 +18,17 @@ SLOTS=threading.BoundedSemaphore(8)
 DEVICE_LOCKS={}
 LOCK=threading.Lock()
 
+def connection_busy(message,status):
+    error=APIError(message,'BUSY',status)
+    error.retryable_before_network=True
+    raise error
+
 @contextmanager
 def device_lock(key):
     with LOCK:mutex=DEVICE_LOCKS.setdefault(key,threading.Lock())
-    if not mutex.acquire(blocking=False):fail('This device already has an active operation.','BUSY',409)
+    if not mutex.acquire(blocking=False):connection_busy('This device already has an active operation.',409)
     if not SLOTS.acquire(timeout=1):
-        mutex.release();fail('Network connection limit reached. Retry shortly.','BUSY',429)
+        mutex.release();connection_busy('Network connection limit reached. Retry shortly.',429)
     try:yield
     finally:SLOTS.release();mutex.release()
 

@@ -11,6 +11,8 @@ from .security import csrf_token, password_policy, audit, fail, require, APIErro
 
 web=Blueprint('web',__name__)
 PAGES={'inventory':'Device inventory','discovery':'Discovery','health':'Device health','interfaces':'Interfaces','playbooks':'Playbooks','vlan':'VLAN management','acl':'Access lists','backups':'Backups','audit':'Audit log','settings':'Settings'}
+PAGES['firewall']='Firewall control'
+PAGES['schedules']='Scheduled tasks'
 DUMMY_PASSWORD_HASH=generate_password_hash('unused-password-verification',method='scrypt')
 
 def signed_in(fn):
@@ -22,7 +24,7 @@ def signed_in(fn):
 
 def render_page(page):
     from .api import bootstrap
-    return render_template('pages/'+page+'.html',page_id=page,page_title=PAGES.get(page,page.replace('-',' ').title()),bootstrap=bootstrap())
+    return render_template('pages/'+page+'.html',page_id=page,page_title=PAGES.get(page,page.replace('-',' ').title()),bootstrap=bootstrap(page))
 
 @web.route('/login',methods=['GET','POST'])
 @web.route('/login.html',methods=['GET','POST'])

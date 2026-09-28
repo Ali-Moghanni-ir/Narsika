@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 import shutil
+from tools.ansible_environment import executable as ansible_executable
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,10 +11,11 @@ from flask import Blueprint, current_app, jsonify, request, Response
 from flask_login import current_user
 from cryptography.fernet import Fernet
 from werkzeug.utils import secure_filename
+from sqlalchemy.orm import joinedload, defer
 from .models import db, User, Group, Device, Credential, Setting, AuditEvent, AuditLog, OperationRun, Playbook, Backup, DiscoveryScan, DiscoveryCandidate, RunArtifact, now
 from .security import require, payload, integer, text, address, network, password_policy, encrypt, decrypt, audit, fail
 from .services import catalog, network as net, telemetry, backups
-from .services.jobs import enqueue
+from .services.jobs import enqueue, worker_available
 from .services.automation import validate_operation
 
 api=Blueprint('api',__name__)
@@ -36,17 +38,25 @@ def settings_data():
     result.update({r.key:r.value for r in Setting.query.filter(Setting.key.in_(result.keys())).all()})
     return result
 
-def bootstrap():
+def device_query():
+    return Device.query.options(joinedload(Device.group),joinedload(Device.credential))
+
+def bootstrap(view=None):
     if not current_user.is_authenticated:return {'user':None,'devices':[],'groups':[],'credentials':[],'users':[],'audit':[],'settings':{}}
-    return dict(user=current_user.public(),devices=[d.public() for d in Device.query.filter_by(archived_at=None).order_by(Device.name)],
+    return dict(user=current_user.public(),devices=[d.public() for d in device_query().filter_by(archived_at=None).order_by(Device.name)],
         groups=[g.public() for g in Group.query.filter_by(archived_at=None).order_by(Group.name)],
         credentials=[c.public() for c in Credential.query.order_by(Credential.name)] if current_user.role in ('ADMIN','OPERATOR') else [],
-        users=[u.public() for u in User.query.order_by(User.id)] if current_user.role=='ADMIN' else [current_user.public()],
-        audit=[a.public() for a in AuditEvent.query.order_by(AuditEvent.id.desc()).limit(500)],settings=settings_data())
+        users=[u.public() for u in User.query.order_by(User.id)] if current_user.role=='ADMIN' and view in (None,'settings') else [current_user.public()],
+        audit=[a.public() for a in AuditEvent.query.order_by(AuditEvent.id.desc()).limit(500)] if view is None else [],settings=settings_data())
 
 @api.get('/bootstrap')
 @require()
-def bootstrap_info():return ok(bootstrap())
+def bootstrap_info():
+    view=request.args.get('view')
+    if view is not None:
+        from .routes import PAGES
+        if view not in PAGES:fail('Unknown workspace view.')
+    return ok(bootstrap(view))
 
 @api.get('/session')
 def session_info():return ok({'user':current_user.public() if current_user.is_authenticated else None})
@@ -79,7 +89,7 @@ def normalize_device(data,row=None):
 @api.route('/devices',methods=['GET','POST'])
 @require()
 def devices():
-    if request.method=='GET':return ok({'items':[d.public() for d in Device.query.filter_by(archived_at=None).order_by(Device.name)]})
+    if request.method=='GET':return ok({'items':[d.public() for d in device_query().filter_by(archived_at=None).order_by(Device.name)]})
     return create_device(payload(DEVICE_FIELDS,('name','ip_address','platform')))
 
 @require('admin')
@@ -101,7 +111,8 @@ def change_device(row):
     else:
         for key,value in normalize_device(payload(DEVICE_FIELDS),row).items():setattr(row,key,value)
         audit('Device updated',row.ip_address)
-    telemetry.COUNTERS.pop(row.id,None)
+    with telemetry.SAMPLE_LOCK:
+        telemetry.COUNTERS.pop((current_app.config['DATA_DIR'],row.id),None)
     db.session.commit();return ok(row.public())
 
 @api.post('/devices/<int:ident>/restore')
@@ -140,7 +151,8 @@ def credential_values(data,row=None):
     if row and kind!=row.kind:fail('Create a separate profile to change credential type.')
     values={'name':text(data.get('name',row.name if row else None),'credential name'),
         'username':text(data.get('username',row.username if row else None),'username'), 'kind':kind}
-    secret=decrypt(row.encrypted_secret) if row else {}
+    original=decrypt(row.encrypted_secret) if row else {}
+    secret=dict(original)
     keys=('password','enable_password','private_key','passphrase') if kind=='ssh' else ('auth_password','priv_password')
     for key in keys:
         if key in data:
@@ -148,7 +160,7 @@ def credential_values(data,row=None):
             secret[key]=data[key]
     if kind=='ssh' and not(secret.get('password') or secret.get('private_key')):fail('Provide an SSH password or private key.')
     if kind=='snmpv3' and any(len(secret.get(k,''))<8 for k in keys):fail('SNMPv3 authentication and privacy passwords require at least 8 characters.')
-    values['encrypted_secret']=encrypt(secret);return values
+    values['encrypted_secret']=row.encrypted_secret if row and secret==original else encrypt(secret);return values
 
 @api.route('/credentials',methods=['GET','POST'])
 @require('admin')
@@ -161,9 +173,14 @@ def credentials():
 @require('admin')
 def credential_item(ident):
     row=get(Credential,ident)
+    before=(row.username,row.encrypted_secret)
     for key,value in credential_values(payload(CREDENTIAL_FIELDS),row).items():setattr(row,key,value)
-    Device.query.filter((Device.credential_id==row.id)|(Device.snmp_credential_id==row.id)).update({'health_json':None},synchronize_session=False)
-    with telemetry.SAMPLE_LOCK:telemetry.COUNTERS.clear()
+    if before!=(row.username,row.encrypted_secret):
+        affected=Device.query.filter((Device.credential_id==row.id)|(Device.snmp_credential_id==row.id))
+        ids=[device.id for device in affected]
+        affected.update({'health_json':None},synchronize_session=False)
+        with telemetry.SAMPLE_LOCK:
+            for ident in ids:telemetry.COUNTERS.pop((current_app.config['DATA_DIR'],ident),None)
     audit('Credential updated',row.name);db.session.commit();return ok(row.public())
 
 @api.route('/users',methods=['GET','POST'])
@@ -230,7 +247,11 @@ def update_settings():
 
 @api.get('/system')
 @require()
-def system_info():return ok({'database':'SQLite','worker_available':'jobs' in current_app.extensions,'ansible_available':bool(shutil.which('ansible-playbook')),'allowed_networks':current_app.config['ALLOWED_NETWORKS'],'scan_max_hosts':current_app.config['SCAN_MAX_HOSTS'],'snmp':'v3 authPriv / SHA-256 / AES-128'})
+def system_info():
+    manager=current_app.extensions.get('jobs')
+    from sqlalchemy import func
+    counts=dict(db.session.query(OperationRun.status,func.count(OperationRun.id)).filter(OperationRun.status.in_(('PENDING','RUNNING'))).group_by(OperationRun.status))
+    return ok({'database':'SQLite','worker_available':bool(manager and manager.available()),'ansible_available':bool(ansible_executable('ansible-playbook')),'allowed_networks':current_app.config['ALLOWED_NETWORKS'],'scan_max_hosts':current_app.config['SCAN_MAX_HOSTS'],'snmp':'v3 authPriv / SHA-256 / AES-128','queue':{'pending':counts.get('PENDING',0),'running':counts.get('RUNNING',0),'capacity':32}})
 
 @api.get('/devices/<int:ident>/health')
 @require()
@@ -288,7 +309,7 @@ def playbook_source(ident):
     row=get(Playbook,ident);return Response(catalog.source(row).read_bytes(),mimetype='text/yaml',headers={'Content-Disposition':'attachment; filename="'+secure_filename(row.name)+'"'})
 
 def queue_run(kind,device,parameters):
-    if 'jobs' not in current_app.extensions and not current_app.testing:fail('The operation worker is not running.','CAPABILITY_UNAVAILABLE',503)
+    if not current_app.testing and not worker_available(current_app):fail('The operation worker is not running.','CAPABILITY_UNAVAILABLE',503)
     run=enqueue(kind,device.id if device else None,current_user.id,parameters)
     audit('Run queued',str(device.ip_address if device else run.id),detail=kind);db.session.commit()
     return run
@@ -298,12 +319,20 @@ def accepted(run):return ok({'run_id':run.id,'status':run.status,'poll_url':f'/a
 @api.route('/automation/runs',methods=['GET','POST'])
 @require()
 def runs():
-    if request.method=='GET':return ok({'items':[r.public() for r in OperationRun.query.order_by(OperationRun.id.desc()).limit(100)]})
+    if request.method=='GET':
+        summary=request.args.get('summary')=='true'
+        query=OperationRun.query
+        if summary:query=query.options(defer(OperationRun.output),defer(OperationRun.encrypted_parameters))
+        return ok({'items':[r.public(include_output=not summary) for r in query.order_by(OperationRun.id.desc()).limit(100)]})
     return create_run(payload({'kind','device_id','playbook_id','variables','parameters'},('kind','device_id')))
 
 @require('operate')
 def create_run(data):
     device=get(Device,data['device_id']);kind=data['kind']
+    return accepted(queue_run(kind,device,prepare_run(kind,device,data)))
+
+def prepare_run(kind,device,data):
+    """Validate an operation without submitting it; shared with scheduled tasks."""
     if kind not in ('playbook','vlan','acl','backup'):fail('Unsupported operation.')
     net.secret(device.credential);address(device.ip_address)
     if kind=='playbook':
@@ -327,7 +356,7 @@ def create_run(data):
         allowed={'vlan':{'vlan_id','vlan_name','operation','save_config'},'acl':{'name','protocol','action','chain','source','destination','port','save_config'},'backup':set()}[kind]
         if set(params)-allowed:fail('Unknown operation parameters.')
         params=validate_operation(kind,params,device)
-    return accepted(queue_run(kind,device,params))
+    return params
 
 @api.get('/automation/runs/<int:ident>')
 @require()
@@ -393,7 +422,7 @@ def discovery_scans():
     if request.method=='GET':return ok({'items':[scan_data(r) for r in DiscoveryScan.query.order_by(DiscoveryScan.id.desc()).limit(50)]})
     data=payload({'cidr','ssh_port','credential_id'},('cidr',));cidr=str(network(data['cidr']))
     port=integer(data.get('ssh_port',22),'SSH port');credential=reference(data.get('credential_id'),Credential,'ssh')
-    if 'jobs' not in current_app.extensions and not current_app.testing:fail('The operation worker is not running.','CAPABILITY_UNAVAILABLE',503)
+    if not current_app.testing and not worker_available(current_app):fail('The operation worker is not running.','CAPABILITY_UNAVAILABLE',503)
     run=enqueue('discovery',None,current_user.id,{'cidr':cidr,'ssh_port':port})
     audit('Discovery scan queued',cidr)
     row=DiscoveryScan(run_id=run.id,cidr=cidr,ssh_port=port,credential_id=credential);db.session.add(row);db.session.commit()

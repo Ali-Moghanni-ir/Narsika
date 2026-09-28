@@ -1,0 +1,8 @@
+---
+# Separate included tasks stop the host after a failed item, unlike a module loop.
+- name: Apply one reviewed Cisco entry
+  cisco.ios.ios_config:
+    parents: "{{ firewall_item.parents }}"
+    lines: "{{ firewall_item.commands }}"
+    match: none
+    save_when: never

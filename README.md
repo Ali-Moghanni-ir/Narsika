@@ -1,5 +1,7 @@
 # Narsika
 
+> **Local review build — Scheduled Tasks & Firewall Control.** This package includes the complete Narsika application, scheduled backups and Playbooks, refined desktop workspace, target-aware queue, staged firewall workflow and native-install recovery. It has not been published to GitHub. Start with the [Scheduled Tasks guide in Persian](docs/SCHEDULES-FA.md) or the [Firewall review and test guide](docs/FIREWALL-REVIEW.md); use a separate lab installation for first tests.
+
 <p align="center">
   <img src="app/static/img/narsika-logo-180.png" width="180" height="180" alt="Narsika logo">
 </p>
@@ -17,6 +19,8 @@
 ## Network operations without the operational clutter
 
 Narsika brings device inventory, live checks, configuration backups, network automation, access control, and operational history into one desktop web workspace.
+
+The workspace guides administrators through the first credential, device and live sample. Quick links connect inventory to health, firewall planning and backups. Execution pages keep the target and actual lifecycle visible, and can reopen a saved run after a page refresh. Run-history lists load summaries; full output stays available when an individual run is opened.
 
 The current release is the **Narsika Public Beta**: a working product for teams that want a focused operational layer for Cisco and MikroTik environments while the platform continues to grow.
 
@@ -66,6 +70,28 @@ Every new installation starts clean. Narsika does not create demonstration devic
 - Audit authentication, administration, and network operations.
 - Revoke existing sessions after account or access changes.
 
+### Put routine operations on a schedule
+
+- Schedule a configuration backup or an existing Playbook for selected Cisco and MikroTik devices.
+- Choose one-time, hourly-interval, daily or weekly execution with an explicit time zone.
+- Review the operation, variables, fixed targets and next three execution windows before saving.
+- Pause/resume future occurrences or use **Run now** without changing the regular schedule.
+- Inspect each occurrence and open its individual device execution logs.
+- Continue scheduled work while browsers are closed, as long as the Narsika service is running.
+
+No schedule is enabled automatically. Missed windows do not trigger a catch-up burst, overlapping occurrences are skipped, and changed targets or Playbooks require review. Existing role enforcement, encrypted credentials and the operation queue remain in use. See [Scheduled Tasks](docs/SCHEDULES-FA.md) for exact timing, permissions, limits and upgrade behavior.
+
+### Plan firewall changes together
+
+- Open **Firewall control** to inspect the selected device's IPv4 filter configuration over SSH.
+- Stage service shortcuts or a custom rule, edit traffic scope and placement, and review the entire change set before applying.
+- Inspect generated commands, device details, management-source address, warnings and manual recovery instructions.
+- Require an encrypted configuration backup before execution and verify requested entries through a fresh SSH connection afterward.
+- Keep an immutable review receipt, execution result and audit trail.
+- Allow administrators to accept possible management lockout with explicit, typed confirmation.
+
+This preview adds RouterOS filter rules and entries to supported existing Cisco named extended ACLs. Existing rules and bindings remain intact; it does not enable listening services or manage the Ubuntu host firewall. Automatic timed rollback is not available. Hardware acceptance and the exact supported scope are documented in the review guide.
+
 ## Internal roles
 
 Narsika permissions belong to Narsika accounts. Ubuntu and Windows usernames are not mapped to product access.
@@ -82,7 +108,7 @@ Anyone who can reach the Narsika web address can open the sign-in page. Their in
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.12+ and Flask |
+| Backend | Python 3.12–3.14 and Flask |
 | Interface | Jinja templates, custom CSS, and Vanilla JavaScript |
 | Database | SQLite with WAL mode |
 | Authentication | Flask-Login with internal role enforcement |
@@ -146,12 +172,17 @@ Open the displayed address from one of the allowed management networks.
 
 ### If installation stops
 
-If a download times out or an older installer reports that `runuser` is missing, extract the latest source into a new directory and rerun `bash run_linux.sh` there. The current installer includes administrative command paths, checks installed tools again after package installation, and gives pip downloads a 120-second timeout with ten retries. Internet access to the package repositories is still required. Existing Narsika data and keys are preserved; do not delete `/var/lib/narsika` or `/etc/narsika` when retrying.
+For slow Docker builds, see [Docker download speed and build cache](docs/INSTALLATION.md#docker-download-speed-and-build-cache). The launchers support a trusted Python mirror and reuse dependency downloads; subsequent normal starts use `docker compose up -d --no-build`.
+
+Extract the latest source into a new directory and rerun `bash run_linux.sh` there. Administrative command paths and missing tools are checked before deployment. Python downloads default to a 120-second timeout and three retries, with explicit HTTPS mirror selection and a terminal retry prompt if the chosen index fails. See [Package downloads and mirrors](docs/INSTALLATION.md#package-downloads-and-mirrors) for settings and resolution diagnostics. Internet access is still required. Existing data, accounts and keys are preserved; do not delete `/var/lib/narsika` or `/etc/narsika` when retrying.
+
+UFW rules are prepared before the new service starts. Failed activation restores the earlier release/configuration where present; partial host firewall changes remain available for inspection, not automatically undone.
 
 ### Service commands
 
 ```bash
 sudo narsika-admin status
+sudo narsika-admin doctor
 sudo narsika-admin logs
 sudo narsika-admin restart
 sudo narsika-admin stop

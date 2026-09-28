@@ -67,6 +67,8 @@ def migrate():
     source=Path(db.engine.url.database)
     upgrading=bool(tables) and (bool(changes) or version<2)
     if upgrading:encrypted_snapshot(source,source.with_name(source.name+'.before-v2.sqlite3.enc'))
+    if tables and 'scheduled_task' not in tables:
+        encrypted_snapshot(source,source.with_name(source.name+'.before-schedules.sqlite3.enc'))
     if changes:
         with db.engine.begin() as conn:
             for table,column,definition in changes:

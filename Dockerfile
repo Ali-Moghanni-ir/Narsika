@@ -1,18 +1,25 @@
-FROM python:3.12-slim-bookworm
+# syntax=docker/dockerfile:1
+FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
     ANSIBLE_COLLECTIONS_PATH=/opt/ansible/collections \
     NARSIKA_DATA_DIR=/var/lib/narsika \
     NARSIKA_BACKUP_DIR=/var/lib/narsika/backups \
     NARSIKA_HTTP_BIND=0.0.0.0:8000
 WORKDIR /opt/narsika
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-client iputils-ping libssh-4 ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-client iputils-ping libssh-4 ca-certificates tzdata && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt constraints.txt ./
-RUN pip install --requirement requirements.txt
-COPY Playbooks/requirements.yml /opt/narsika/Playbooks/requirements.yml
-COPY tools/patch_ansible.py /opt/narsika/tools/patch_ansible.py
-RUN ansible-galaxy collection install --requirements-file Playbooks/requirements.yml --collections-path /opt/ansible/collections && python tools/patch_ansible.py /opt/ansible/collections
+COPY tools/dependencies.py /opt/narsika/tools/dependencies.py
+ARG NARSIKA_PIP_INDEX_URL=https://pypi.org/simple/
+ARG NARSIKA_PIP_TIMEOUT=120
+ARG NARSIKA_PIP_RETRIES=3
+# Download cache belongs to BuildKit, not the shipped image.
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    python -c "from pathlib import Path; from tools.dependencies import install, settings; import sys; install(sys.executable, Path('requirements.txt'), settings(), interactive=False)"
+COPY Playbooks/requirements.yml Playbooks/collections.lock.json /opt/narsika/Playbooks/
+COPY ansible.cfg /opt/narsika/ansible.cfg
+COPY tools/patch_ansible.py tools/ansible_environment.py tools/install_collections.py /opt/narsika/tools/
+RUN python tools/install_collections.py --collections-path /opt/ansible/collections
 RUN groupadd --gid 10001 narsika && useradd --uid 10001 --gid narsika --create-home --shell /usr/sbin/nologin narsika && mkdir -p /var/lib/narsika/backups && chown -R narsika:narsika /var/lib/narsika
 COPY --chown=root:root app ./app
 COPY --chown=root:root Playbooks ./Playbooks
