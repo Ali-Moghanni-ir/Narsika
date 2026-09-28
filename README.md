@@ -12,288 +12,116 @@
 
 <p align="center"><strong>Public Beta · Free to use, always.</strong></p>
 
+<p align="center">
+  <a href="https://github.com/Ali-Moghanni-ir/Narsika/actions/workflows/validate.yml"><img src="https://github.com/Ali-Moghanni-ir/Narsika/actions/workflows/validate.yml/badge.svg" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue" alt="License: FSL-1.1-ALv2"></a>
+  <img src="https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-informational" alt="Python 3.12 to 3.14">
+  <img src="https://img.shields.io/badge/status-public%20beta-orange" alt="Status: public beta">
+</p>
+
 ![Narsika workspace illustration](app/static/img/narsika-social-banner.png)
 
-## Network operations without the operational clutter
+Narsika brings device inventory, live health checks, encrypted configuration backups, Ansible automation, reviewed firewall changes, scheduled tasks and a full audit trail into one desktop web workspace. You install it on your own server, it talks to your devices over SSH and SNMPv3, and nothing leaves your network.
 
-Narsika brings device inventory, live checks, configuration backups, network automation, access control, and operational history into one desktop web workspace.
+It is built for network engineers and IT teams who want a practical tool they can understand end to end — without deploying a large monitoring stack or maintaining a folder of disconnected scripts.
 
-The workspace guides administrators through the first credential, device and live sample. Quick links connect inventory to health, firewall planning and backups. Execution pages keep the target and actual lifecycle visible, and can reopen a saved run after a page refresh. Run-history lists load summaries; full output stays available when an individual run is opened.
+**What you see is real.** A new installation starts empty. Narsika never creates demo devices, simulated telemetry, fake backups or sample results; a value that cannot be measured is shown as **N/A**.
 
-The current release is the **Narsika Public Beta**: a working product for teams that want a focused operational layer for Cisco and MikroTik environments while the platform continues to grow.
+## Features
 
-It is designed for network teams that need a practical tool they can install on their own infrastructure and understand from end to end—without deploying a large monitoring stack or maintaining a collection of disconnected scripts.
-
-Every new installation starts clean. Narsika does not create demonstration devices, simulated telemetry, fake backups, or sample execution results. What you see comes from the Narsika database or your actual network equipment.
-
-## What you can do with Narsika
-
-### Organize your network
-
-- Manage Cisco IOS, Cisco IOS XE, and MikroTik RouterOS devices.
-- Keep devices in a searchable inventory with logical groups.
-- Assign reusable SSH and SNMPv3 credential profiles.
-- Store device model, management address, ports, and operational notes.
-- Discover IPv4 hosts within explicitly allowed management ranges.
-
-### Observe device state
-
-- Run live, on-demand health checks against selected devices.
-- Inspect reachability, identity, uptime, CPU, memory, and platform facts when available.
-- Read interface state and SNMPv3 traffic counters.
-- Keep unavailable values honest: missing measurements are displayed as **N/A**, never invented.
-
-### Protect configuration state
-
-- Capture encrypted Cisco and MikroTik configuration backups.
-- Download retained backups and compare configuration versions.
-- Preserve checksums, timestamps, device ownership, and audit context.
-- Create backups manually before making operational changes.
-
-### Automate repeatable work
-
-- Use a reusable Ansible Playbook library for Cisco and MikroTik operations.
-- Upload and replace custom Playbooks as an administrator.
-- Let operators execute active Playbooks without granting upload permission.
-- Review supported operations before applying them to a device.
-- Add reviewed MikroTik filter rules and Cisco ACL entries, or create new Cisco named extended ACLs, from one Firewall workspace.
-- Manage Cisco VLAN operations through the same controlled execution path.
-- Track queued, running, successful, failed, and cancelled operations.
-- Retain sanitized task events, result history, and generated artifacts.
-
-### Control access
-
-- Create and manage internal Narsika accounts.
-- Enforce permissions on the server—not only in the interface.
-- Audit authentication, administration, and network operations.
-- Revoke existing sessions after account or access changes.
-
-### Put routine operations on a schedule
-
-- Schedule a configuration backup or an existing Playbook for selected Cisco and MikroTik devices.
-- Choose one-time, hourly-interval, daily or weekly execution with an explicit time zone.
-- Review the operation, variables, fixed targets and next three execution windows before saving.
-- Pause/resume future occurrences or use **Run now** without changing the regular schedule.
-- Inspect each occurrence and open its individual device execution logs.
-- Continue scheduled work while browsers are closed, as long as the Narsika service is running.
-
-No schedule is enabled automatically. Missed windows do not trigger a catch-up burst, overlapping occurrences are skipped, and changed targets or Playbooks require review. Existing role enforcement, encrypted credentials and the operation queue remain in use. See [Scheduled Tasks](docs/SCHEDULES-FA.md) for exact timing, permissions, limits and upgrade behavior.
-
-### Plan firewall changes together
-
-- Open **Firewall control** to inspect the selected device's IPv4 filter configuration over SSH.
-- Stage service shortcuts or a custom rule, edit traffic scope and placement, and review the entire change set before applying.
-- Inspect generated commands, device details, management-source address, warnings and manual recovery instructions.
-- Require an encrypted configuration backup before execution and verify requested entries through a fresh SSH connection afterward.
-- Keep an immutable review receipt, execution result and audit trail.
-- Allow administrators to accept possible management lockout with explicit, typed confirmation.
-
-This preview adds RouterOS filter rules, entries to supported existing Cisco named extended ACLs, and new unbound Cisco named extended ACLs. Existing rules and bindings remain intact; it does not enable listening services or manage the Ubuntu host firewall. Automatic timed rollback is not available. Hardware acceptance and the exact supported scope are documented in the review guide.
-
-## Internal roles
-
-Narsika permissions belong to Narsika accounts. Ubuntu and Windows usernames are not mapped to product access.
-
-| Role | Intended access |
+| Area | What you get |
 |---|---|
-| **ADMIN** | Manage users, settings, devices, credentials, Playbook uploads, and all operations |
-| **OPERATOR** | Monitor devices, run existing Playbooks, backups and VLAN operations, and apply scoped firewall changes |
-| **VIEWER** | View inventory, monitoring results, backups, run history, and audit records |
+| **Inventory** | Cisco IOS / IOS XE and MikroTik RouterOS devices, groups, reusable SSH and SNMPv3 credential profiles, notes, and bounded IPv4 discovery of candidates in allowed ranges. |
+| **Monitoring** | On-demand health (reachability, identity, uptime, CPU, memory), interface state and SNMPv3 traffic rates while the page is open. |
+| **Backups** | Encrypted running-configuration backups with SHA-256 checks, download and side-by-side comparison. |
+| **Automation** | A Cisco and MikroTik Ansible Playbook library with preview/apply mode, admin uploads, VLAN management and a persistent operation queue with live logs and cancellation. |
+| **Firewall** | Read a device's IPv4 filter rules, stage Allow/Block changes, review the exact commands, take a mandatory backup, apply, and verify the result over a fresh SSH connection. Create new Cisco named extended ACLs. |
+| **Schedules** | Run backups or Playbooks one time, every few hours, daily or weekly, with explicit time zones and per-occurrence history. |
+| **Access control** | ADMIN, OPERATOR and VIEWER roles enforced on the server, forced password changes, session revocation and a searchable audit log. |
 
-Anyone who can reach the Narsika web address can open the sign-in page. Their internal role determines what they can view or change after authentication.
+## Quick start
 
-## How it is built
+Download the source (**Code → Download ZIP**, or `git clone https://github.com/Ali-Moghanni-ir/Narsika.git`), extract it completely, and open a terminal in the extracted folder.
 
-| Layer | Technology |
-|---|---|
-| Backend | Python 3.12–3.14 and Flask |
-| Interface | Jinja templates, custom CSS, and Vanilla JavaScript |
-| Database | SQLite with WAL mode |
-| Authentication | Flask-Login with internal role enforcement |
-| Automation | Ansible Core |
-| Device access | SSH, Netmiko, Ansible network CLI, and SNMPv3 |
-| Application server | Gunicorn |
-| Native Linux service | systemd |
-| Windows runtime | Docker Desktop with WSL2 |
-
-Narsika uses a compact single-server architecture. It does not require Redis, Celery, Node.js, React, Tailwind, or an external database. Monitoring work is performed on demand while the relevant workspace is active.
-
-```mermaid
-flowchart LR
-    U["Desktop browser"] --> N["Narsika"]
-    N --> D["SQLite and encrypted storage"]
-    N --> Q["Operation queue"]
-    Q --> A["Ansible, SSH and SNMPv3"]
-    A --> E["Cisco and MikroTik devices"]
-```
-
-## Install on Ubuntu
-
-Native installation on **Ubuntu 24.04 or newer, x64** is the primary deployment method. Both Ubuntu Desktop and Ubuntu Server are supported.
-
-### Before you begin
-
-You need:
-
-- Ubuntu 24.04 or a newer Ubuntu release on x64;
-- an internet connection during installation;
-- a user with `sudo` access;
-- at least 2 GiB of free disk space;
-- network connectivity from the Ubuntu host to the devices you want to manage.
-
-You do not need to install Python, pip, Ansible, Gunicorn, SSH tools, or UFW manually.
-
-### Run the installer
-
-Download and fully extract Narsika, open a terminal inside the extracted directory, and run:
+**Ubuntu 24.04 or newer (x64) — recommended**
 
 ```bash
 bash run_linux.sh
 ```
 
-The installer checks the host, installs missing requirements, creates an isolated Python environment, prepares private storage, configures the firewall, installs the systemd service, starts Narsika, and verifies application health.
+The installer sets up everything it needs (Python environment, Ansible, systemd service, UFW rules), asks for the HTTP port and the management networks allowed to reach Narsika, and prints the address and a one-time administrator password.
 
-During setup, you choose:
-
-- the HTTP port, with `8000` as the default;
-- the IPv4 management networks allowed to reach the platform.
-
-Narsika uses the existing address of the Ubuntu host. It does not change the host IP address, DHCP configuration, DNS, routes, or network interfaces.
-
-After installation, the terminal displays an address similar to:
-
-```text
-http://192.168.10.20:8000
-```
-
-Open the displayed address from one of the allowed management networks.
-
-### If installation stops
-
-For slow Docker builds, see [Docker download speed and build cache](docs/INSTALLATION.md#docker-download-speed-and-build-cache). The launchers support a trusted Python mirror and reuse dependency downloads; subsequent normal starts use `docker compose up -d --no-build`.
-
-Extract the latest source into a new directory and rerun `bash run_linux.sh` there. Administrative command paths and missing tools are checked before deployment. Python downloads default to a 120-second timeout and three retries, with explicit HTTPS mirror selection and a terminal retry prompt if the chosen index fails. See [Package downloads and mirrors](docs/INSTALLATION.md#package-downloads-and-mirrors) for settings and resolution diagnostics. Internet access is still required. Existing data, accounts and keys are preserved; do not delete `/var/lib/narsika` or `/etc/narsika` when retrying.
-
-UFW rules are prepared before the new service starts. Failed activation restores the earlier release/configuration where present; partial host firewall changes remain available for inspection, not automatically undone.
-
-### Service commands
-
-```bash
-sudo narsika-admin status
-sudo narsika-admin doctor
-sudo narsika-admin logs
-sudo narsika-admin restart
-sudo narsika-admin stop
-sudo narsika-admin start
-```
-
-### Create a platform backup
-
-```bash
-sudo narsika-admin backup
-```
-
-The platform backup contains the database, private configuration, encryption keys, uploaded Playbooks, encrypted device backups, execution artifacts, and trusted SSH host records. Store exported platform backups securely.
-
-### Upgrade an existing installation
-
-Extract the new release into a separate directory, then run:
-
-```bash
-sudo narsika-admin upgrade /absolute/path/to/new/narsika
-```
-
-The upgrade process preserves existing users, data, credentials, private storage, and encryption keys.
-
-## Install on Windows
-
-Narsika runs on Windows through a managed Linux environment. The recommended method uses **Docker Desktop with the WSL2 backend**. Windows Python and pip are not required.
-
-### Before you begin
-
-You need:
-
-- an updated 64-bit installation of Windows 10 or Windows 11;
-- hardware virtualization enabled in firmware;
-- administrator permission for WSL and Docker setup;
-- an internet connection during installation.
-
-### Run the Windows launcher
-
-1. Download and fully extract the Narsika ZIP.
-2. Open the extracted directory.
-3. Double-click **run_windows.bat**.
-4. Approve administrator prompts when requested.
-5. Complete Docker Desktop setup if the launcher opens it.
-6. Restart Windows if requested.
-7. Run **run_windows.bat** again after the restart.
-
-The launcher checks WSL2 and Docker Desktop, installs missing prerequisites, builds the Narsika runtime, creates persistent storage, provisions the first administrator, starts the platform, waits for a healthy response, and displays the application address.
-
-### Native WSL2 alternative
-
-To install the Ubuntu service directly inside WSL2, open Command Prompt in the extracted directory and run:
+**Windows 10/11 (x64)** — double-click `run_windows.bat`. It installs or reuses WSL2 and Docker Desktop and runs Narsika in a container. To install inside Ubuntu on WSL2 instead:
 
 ```text
 run_windows.bat -WSL
 ```
 
-Complete the Ubuntu first-launch setup if Windows requests it, then run the command again. A recent WSL2 installation with systemd support is required.
-
-## First sign-in
-
-The first administrator username is:
-
-```text
-admin
-```
-
-During installation, Narsika generates a strong random temporary password and displays it once in the terminal. Copy that password and use it for the first sign-in.
-
-Before the administrator can continue, Narsika requires a new password and confirmation. There is no default `admin/admin` credential, and the database stores only password hashes.
-
-Administrators can create additional accounts from **Settings → Users**. Every new or reset account receives a random temporary password that is shown once and must be changed at the next sign-in.
-
-If the administrator password is lost on Linux, reset it locally with:
+**Docker on Linux**
 
 ```bash
-sudo narsika-admin reset-admin admin
+bash run_linux.sh --docker
 ```
 
-## Add your first device
+Sign in as `admin` with the password printed by the installer; you must choose a new password immediately. There is no default `admin/admin`.
 
-1. Sign in as an administrator.
-2. Open **Settings → Credentials**.
-3. Create an SSH credential profile using a password or private key.
-4. Open **Inventory** and add a Cisco or MikroTik device.
-5. Assign its credential profile and connection ports.
-6. Use the shield action to read the device SSH fingerprint.
-7. Compare the fingerprint with a trusted source and approve it.
-8. Open **Device Health** and request live device information.
-9. Add an SNMPv3 profile if you need interface counters and traffic rates.
-10. Capture a configuration backup before applying network changes.
+Full requirements, mirrors for slow downloads, upgrades and troubleshooting: **[Installation guide](docs/INSTALLATION.md)**. Your first device, SSH trust and first backup: **[Getting started](docs/GETTING-STARTED.md)**.
 
-Narsika never automatically trusts an unknown SSH host key.
+## Documentation
 
-## Security model
+| Guide | For |
+|---|---|
+| [Installation](docs/INSTALLATION.md) | Ubuntu, Windows, WSL2 and Docker installs, mirrors, first sign-in |
+| [Getting started](docs/GETTING-STARTED.md) | Users and roles, first device, SSH host keys, health, backups, Playbooks |
+| [Firewall](docs/FIREWALL.md) | Reviewed firewall changes on RouterOS and Cisco, risk levels, recovery |
+| [Scheduled tasks](docs/SCHEDULES.md) | Recurring backups and Playbooks, statuses, limits |
+| [Operations](docs/OPERATIONS.md) | Service commands, doctor, platform backup and restore, upgrades, HTTPS, configuration |
+| [Playbook library](Playbooks/README.md) | Bundled Playbooks, variables and command-line use |
+| [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Ansible dependencies](docs/ANSIBLE-DEPENDENCIES.md) · [Migration](docs/MIGRATION.md) | Developers and advanced operators |
+| [Roadmap](docs/ROADMAP.md) · [Changelog](CHANGELOG.md) | What is planned and what changed |
 
-Narsika includes:
+## Roles
 
-- random initial and reset passwords;
-- mandatory password changes;
-- scrypt password hashing;
-- HttpOnly and SameSite session cookies;
-- CSRF protection;
-- sign-in attempt throttling;
-- server-side role enforcement;
-- session revocation after access changes;
-- Fernet encryption for device credentials and private artifacts;
-- explicit SSH host-key verification;
-- private temporary Ansible inventory and variable files;
-- sanitized execution events and audit history;
-- management-network filtering during native installation.
+| Role | Access |
+|---|---|
+| **ADMIN** | Everything: users, settings, devices, credentials, Playbook uploads, all operations and high-risk firewall changes |
+| **OPERATOR** | Monitoring, backups, existing Playbooks, VLAN operations, scheduled tasks they own and scoped firewall changes |
+| **VIEWER** | Read-only: inventory, monitoring, backups, run history and audit records |
 
-The first release uses HTTP. Deploy it on a trusted management network and do not expose the application port directly to the public Internet.
+Roles belong to Narsika accounts; operating-system users are not mapped to them.
+
+## How it is built
+
+Python 3.12–3.14 and Flask, Jinja templates with custom CSS and vanilla JavaScript, SQLite in WAL mode, Ansible Core with Netmiko and SNMPv3 for device access, served by Gunicorn under systemd (or Docker on Windows). There is no Redis, Celery, Node.js build step or external database: one small server is enough.
+
+```mermaid
+flowchart LR
+    U["Browser"] --> N["Narsika (Flask + Gunicorn)"]
+    N --> D["SQLite + encrypted files"]
+    N --> Q["Operation queue + scheduler"]
+    Q --> A["Ansible · SSH · SNMPv3"]
+    A --> E["Cisco and MikroTik devices"]
+```
+
+## Security
+
+- Random one-time initial and reset passwords, mandatory password change, scrypt hashing and sign-in throttling.
+- Server-side role checks, CSRF protection, HttpOnly/SameSite cookies and session revocation after access changes.
+- Device credentials, backups, job parameters and artifacts encrypted at rest (Fernet).
+- Unknown SSH host keys are never trusted automatically; changed keys are rejected.
+- Every device change goes through validation, the operation queue and the audit log.
+
+Narsika serves plain HTTP by default. Run it on a trusted management network and never expose it directly to the Internet; see [HTTPS](docs/OPERATIONS.md#https-with-nginx) for a reverse-proxy setup. To report a vulnerability, follow [SECURITY.md](SECURITY.md).
+
+## Project status
+
+Narsika is in **public beta**. Every change runs the automated suite in CI on Python 3.12, 3.13 and 3.14, plus Docker and Windows installer checks. Health, backups and Playbooks have been used on MikroTik CHR, physical MikroTik and virtual Cisco devices. Device behaviour of the newest features — Firewall and scheduled tasks — still needs broader lab verification, so test changes on lab equipment with console access before using them in production.
+
+Next up: a platform driver layer, Linux server support, persistent monitoring with alerts, and an AI assistant that proposes changes for human approval. See the [roadmap](docs/ROADMAP.md).
+
+## Contributing
+
+Bug reports and feature ideas are welcome in [Issues](https://github.com/Ali-Moghanni-ir/Narsika/issues). Before opening a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

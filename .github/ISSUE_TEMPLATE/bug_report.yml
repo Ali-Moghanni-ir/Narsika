@@ -1,0 +1,67 @@
+name: Bug report
+description: Something in Narsika does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Do not include passwords, keys, full device configurations or other secrets.**
+        Security problems belong in a private report: see SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Firewall and select a RouterOS device
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - Ubuntu native
+        - Windows + Docker Desktop
+        - Windows + WSL2 Ubuntu
+        - Docker on Linux
+        - Development checkout
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Narsika commit or download date
+      placeholder: e.g. 2b8abed or 2026-09-28
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host OS
+      placeholder: e.g. Ubuntu 26.04 x64, Windows 11 23H2
+  - type: input
+    id: device
+    attributes:
+      label: Device platform and firmware (if relevant)
+      placeholder: e.g. RouterOS 7.16 on CHR, Cisco IOS XE 17.9 (virtual)
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostics
+      description: Redacted output of `sudo narsika-admin doctor`, relevant log lines, or the run output. Remove secrets first.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I removed passwords, keys and other secrets from this report.
+          required: true
