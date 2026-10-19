@@ -148,6 +148,58 @@ def test_actual_ansible_local_execution_and_private_artifacts(admin,app):
         assert not list((Path(app.config['DATA_DIR'])/'runs').glob('job-*'))
 
 
+def test_ansible_treats_user_variables_and_secrets_as_data(admin, app, tmp_path):
+    """Jinja in operator variables or device passwords must never run on the Narsika host."""
+    import hashlib
+    marker = tmp_path / 'template-executed'
+    payload = "{{ lookup('pipe', 'touch " + str(marker) + "; echo injected') }}"
+    password = 'Pa{#ss{{ 7*7 }}'
+    response = post(admin, '/api/credentials', {'name': 'Template characters', 'username': 'test-network-user',
+                                                'kind': 'ssh', 'password': password})
+    assert response.status_code == 201, response.json
+    target = device(admin, response.json['data'], '127.0.0.1')
+    with app.app_context():
+        source = Path(app.config['DATA_DIR']) / 'playbooks' / 'untrusted-variables.yml'
+        source.write_text('''- hosts: all
+  gather_facts: false
+  tasks:
+    - name: Use the device password as plain data
+      ansible.builtin.assert:
+        that:
+          - ansible_password | length == 15
+    - name: Create local artifact root
+      ansible.builtin.file:
+        path: "{{ narsika_artifact_root }}"
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    - name: Write the operator variable exactly as received
+      ansible.builtin.copy:
+        content: "{{ vlan_name }}|{{ nested.entries[0] }}"
+        dest: "{{ narsika_artifact_root }}/received.txt"
+        mode: '0600'
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+''')
+        book = Playbook(name='Custom/untrusted-variables.yml', title='Untrusted variables', vendor='Any', path=str(source))
+        db.session.add(book)
+        db.session.flush()
+        variables = {'vlan_name': payload, 'nested': {'entries': [payload, 7]}}
+        run = enqueue('playbook', target['id'], 1, {'playbook_id': book.id, 'variables': variables})
+        db.session.commit()
+        result = run_ansible(run, {'playbook_id': book.id, 'variables': variables}, db.session.get(Device, target['id']))
+        assert 'completed' in result
+        assert not marker.exists()
+        artifact = RunArtifact.query.filter_by(run_id=run.id).one()
+        assert artifact.checksum == hashlib.sha256((payload + '|' + payload).encode()).hexdigest()
+        assert password not in run.output
+
+
 def test_job_dispatcher_cancellation_restart_and_worker_lock(admin,app,monkeypatch):
     profile=credential(admin);target=device(admin,profile)
     with app.app_context():
