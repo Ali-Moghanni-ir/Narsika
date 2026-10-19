@@ -4,7 +4,7 @@ Narsika stores device credentials and can change network configuration, so secur
 
 ## Supported versions
 
-Only the latest code on the `main` branch receives security fixes during the Public Beta.
+During the Public Beta, security fixes go into the latest [release](https://github.com/Ali-Moghanni-ir/Narsika/releases) and the `main` branch. Upgrade to the newest release to receive them; older releases are not patched.
 
 ## Reporting a vulnerability
 
@@ -14,7 +14,7 @@ Report privately through GitHub: open the repository's **Security** tab and choo
 
 - what the problem is and its impact;
 - steps to reproduce, or a proof of concept;
-- the Narsika commit and install method (native, Docker, WSL2);
+- the Narsika version (page footer or **Settings → Connection**) and install method (native, Docker, WSL2);
 - any suggested fix.
 
 Remove passwords, keys, device configurations and other secrets from your report.
