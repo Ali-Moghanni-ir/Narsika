@@ -10,8 +10,19 @@ def probe(ip,port):
             try:banner=sock.recv(256).decode('ascii',errors='ignore').lower()
             except (socket.timeout,OSError):banner=''
             if not banner.startswith('ssh-'):return None
-            return 'mikrotik' if 'mikrotik' in banner else 'cisco' if 'cisco' in banner else 'unknown'
+            return vendor_hint(banner)
     except OSError:return None
+
+
+def vendor_hint(banner: str) -> str:
+    """Guess the vendor from an SSH banner; RouterOS announces itself as ROSSSH."""
+    banner = banner.lower()
+    if 'mikrotik' in banner or 'rosssh' in banner:
+        return 'mikrotik'
+    if 'cisco' in banner:
+        return 'cisco'
+    return 'unknown'
+
 
 def scan(run,parameters):
     item=DiscoveryScan.query.filter_by(run_id=run.id).one()

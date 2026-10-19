@@ -6,6 +6,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from flask import current_app
 from sqlalchemy import text as sql
 from sqlalchemy.orm import selectinload
 from ..models import db, ScheduledTask, ScheduleOccurrence, ScheduleRun, OperationRun, Device, Playbook, now
@@ -16,6 +17,9 @@ from . import catalog
 UTC=timezone.utc
 LOCK=threading.RLock()
 GRACE_SECONDS=60
+# Consecutive unexpected dispatch errors per (data directory, task) before the task is disabled.
+MAX_TICK_FAILURES=5
+FAILURES={}
 
 def utc(value):
     return datetime.fromtimestamp(value,UTC).isoformat().replace('+00:00','Z') if value is not None else None
@@ -92,7 +96,8 @@ def definition(data):
     if len(json.dumps(result))>64000:fail('Schedule variables are too large.')
     return result
 
-def validate_definition(task):
+def validate_definition(task,device_id=None):
+    """Re-check owner, Playbook and targets. With device_id, check only that target."""
     from ..api import prepare_run
     owner=task.owner
     if not owner or not owner.is_active or owner.must_change_password or owner.role not in ('ADMIN','OPERATOR'):
@@ -102,20 +107,25 @@ def validate_definition(task):
         expected=saved['playbook'];book=db.session.get(Playbook,expected['id'])
         if not book or not book.active or book.version!=expected['version'] or hashlib.sha256(catalog.source(book).read_bytes()).hexdigest()!=expected['sha256']:
             fail('The playbook version or content changed. Edit and review this task.','PLAYBOOK_CHANGED',409)
-    for target in saved['targets']:
+    targets=saved['targets']
+    if device_id is not None:
+        # One run checks its own target, so a change to another target does not fail it.
+        targets=[target for target in targets if target['id']==device_id]
+        if not targets:fail('This device is no longer a target of the task.','TARGET_CHANGED',409)
+    for target in targets:
         device=db.session.get(Device,target['id'])
         if not device or device.archived_at or target_identity(device)!=target['identity']:
             fail('A target or its connection credentials changed. Edit and review this task.','TARGET_CHANGED',409)
         prepare_run(task.kind,device,saved['parameters'])
     return saved
 
-def preflight(parameters):
+def preflight(parameters,device_id=None):
     ident=parameters.pop('_scheduled_task',None)
     if ident is None:return
     revision=parameters.pop('_schedule_revision',None)
     task=db.session.get(ScheduledTask,ident)
     if not task or task.revision!=revision:fail('Scheduled task changed after dispatch. Review before rerunning.','SCHEDULE_CHANGED',409)
-    validate_definition(task)
+    validate_definition(task,device_id)
 
 def occurrence_public(row):
     runs=[{'device_id':link.device_id,'device_name':link.device_name,**link.run.public(include_output=False)} for link in row.runs]
@@ -167,9 +177,11 @@ def tick(moment=None):
     with LOCK:
         if not ScheduledTask.query.filter(ScheduledTask.enabled.is_(True),ScheduledTask.next_due<=moment).first():return
         db.session.execute(sql('BEGIN IMMEDIATE'))
+        current=None
         try:
             rows=ScheduledTask.query.filter(ScheduledTask.enabled.is_(True),ScheduledTask.next_due<=moment).order_by(ScheduledTask.next_due,ScheduledTask.id).limit(50).populate_existing().all()
             for task in rows:
+                current=task.id
                 due=task.next_due
                 token='due:'+str(int(due))
                 if moment-due>GRACE_SECONDS:
@@ -179,5 +191,28 @@ def tick(moment=None):
                 else:dispatch(task,token,due,'scheduled')
                 task.next_due=next_time(task.rule,moment)
                 if task.next_due is None:task.enabled=False
+            current=None
             db.session.commit()
-        except Exception:db.session.rollback();raise
+            FAILURES.clear()
+        except Exception as ex:
+            db.session.rollback()
+            if current is None:raise
+            key=(current_app.config['DATA_DIR'],current)
+            FAILURES[key]=FAILURES.get(key,0)+1
+            # A temporary error is retried on the next tick. A task that keeps failing is
+            # disabled so it cannot stop every other schedule from being dispatched.
+            if FAILURES[key]<MAX_TICK_FAILURES:raise
+            FAILURES.pop(key)
+            quarantine(current,type(ex).__name__)
+
+
+def quarantine(ident: int, error: str) -> None:
+    """Disable a task whose dispatch keeps raising an unexpected error."""
+    current_app.logger.error('Scheduled task %s disabled after repeated internal errors: %s', ident, error)
+    task=db.session.get(ScheduledTask,ident)
+    if task is None:
+        return
+    task.enabled=False
+    task.attention='Scheduling stopped after repeated internal errors. Edit and review this task before enabling it again.'
+    audit('Scheduled task blocked',str(task.id),'failed',task.attention,actor_id=task.owner_id)
+    db.session.commit()
