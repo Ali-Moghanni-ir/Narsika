@@ -7,6 +7,15 @@ Notable changes to Narsika. Dates are in UTC. Narsika does not publish version n
 ### Security
 - Playbook variables, scheduled-task variables and device credentials are passed to Ansible as data (`!unsafe`) and are never rendered as Jinja templates. Before this fix, an OPERATOR could run commands on the Narsika server by putting a Jinja expression in a Playbook variable, and a device password containing `{{`, `{%` or `{#` broke every Ansible job for that device.
 
+### Fixed
+- Configuration backups and Firewall reads no longer fail when a Cisco interface description or RouterOS comment contains words such as "syntax error" or "bad command name".
+- Discovery recognises RouterOS devices, which announce themselves as `ROSSSH`, instead of labelling them `unknown`.
+- SNMP interface rates are shown for devices that do not report the optional `ifCounterDiscontinuityTime` counter.
+- A scheduled task that keeps failing with an unexpected error is disabled after five attempts with an attention message, instead of stopping every other schedule.
+- In a multi-device scheduled task, a changed device fails only its own run, not the runs for the other devices.
+- Cancelling a queued run before it starts now writes an output note and an audit event.
+- A run picked up while the service is shutting down returns to the queue instead of staying `RUNNING` until restart.
+
 ## 2026-09-28
 
 ### Added
