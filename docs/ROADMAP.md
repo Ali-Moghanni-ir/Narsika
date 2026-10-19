@@ -12,7 +12,6 @@ This roadmap shows direction, not promises or dates. Priorities follow what make
 ## Now — hardening the Public Beta
 
 - **Lab verification** of Firewall and scheduled tasks on Cisco IOS / IOS XE and RouterOS 7, including RouterOS FastTrack and Cisco ACL creation.
-- **Versioned releases**: Git tags and GitHub Releases with a packaged ZIP and SHA-256 checksums, so users no longer download a moving branch.
 - **Prebuilt Docker image** published to a registry, removing the long first build on Windows and Docker hosts.
 - **Browser end-to-end tests** and fresh product screenshots for the README.
 - **Code readability**: automatic formatting and linting in CI, and splitting the core API module into smaller blueprints.

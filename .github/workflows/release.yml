@@ -1,0 +1,43 @@
+name: Release Narsika
+# Runs when a maintainer pushes a version tag, for example: git tag v0.9.0 && git push origin v0.9.0
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check the tag against app/version.py and CHANGELOG.md
+        run: python tools/release_check.py "$GITHUB_REF_NAME" --notes "$RUNNER_TEMP/notes.md"
+      - run: sudo apt-get update && sudo apt-get install -y libssh-4 iputils-ping openssh-client
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python tools/install_collections.py --collections-path "$RUNNER_TEMP/collections"
+      - name: Test the tagged source
+        run: python -m pytest -q
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/collections
+      - name: Build the release archive and checksum
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python tools/package_release.py "dist/narsika-${version}.zip"
+          cd dist && sha256sum "narsika-${version}.zip" > "narsika-${version}.zip.sha256"
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Narsika ${GITHUB_REF_NAME#v}" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --verify-tag
