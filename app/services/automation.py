@@ -19,6 +19,42 @@ from .backups import capture,store_backup
 from tools.ansible_environment import environment as ansible_environment, executable as ansible_executable
 
 ROOT=Path(__file__).resolve().parents[2]
+# Credential fields copied into the inventory; they come from users, not from Narsika.
+INVENTORY_SECRETS = ('ansible_user', 'ansible_password', 'ansible_become_password', 'ansible_private_key_passphrase')
+
+
+class Untrusted(str):
+    """A string Ansible must treat as data and never render as a Jinja template."""
+
+
+class UntrustedDumper(yaml.SafeDumper):
+    """Writes Untrusted strings with Ansible's !unsafe tag."""
+
+
+UntrustedDumper.add_representer(
+    Untrusted, lambda dumper, value: dumper.represent_scalar('!unsafe', str(value), style='"'))
+
+
+def untrusted(value: object) -> object:
+    """Mark every string inside user-supplied data as !unsafe for Ansible.
+
+    Ansible renders Jinja in inventory and extra-vars values. Without this, a
+    value such as "{{ lookup('pipe', ...) }}" would run on the Narsika host.
+    """
+    if isinstance(value, str):
+        return Untrusted(value)
+    if isinstance(value, list):
+        return [untrusted(item) for item in value]
+    if isinstance(value, dict):
+        return {key: untrusted(item) for key, item in value.items()}
+    return value
+
+
+def write_private_yaml(path: Path, data: object) -> None:
+    """Write Ansible input that only the service account can read."""
+    path.write_text(yaml.dump(data, Dumper=UntrustedDumper, allow_unicode=True, sort_keys=False))
+    path.chmod(0o600)
+
 
 def validate_operation(kind,params,device):
     if 'save_config' in params and not isinstance(params['save_config'],bool):fail('save_config must be true or false.')
@@ -111,10 +147,13 @@ def run_ansible(run,params,device,*,lock_held=False):
             if values.get('private_key'):
                 key=tmp/'identity';key.write_text(values['private_key']);key.chmod(0o600)
                 protected.update(ansible_private_key_file=str(key),ansible_private_key_passphrase=values.get('passphrase',''))
-            inventory['all']['hosts']['target'].update({k:v for k,v in protected.items() if k.startswith('ansible_')})
-            variables={**variables,'narsika_targets':'all','narsika_artifact_root':str(tmp/'artifacts')}
-            inv=tmp/'inventory.json';inv.write_text(json.dumps(inventory));inv.chmod(0o600)
-            varfile=tmp/'variables.json';varfile.write_text(json.dumps(variables));varfile.chmod(0o600)
+            inventory['all']['hosts']['target'].update({k:(untrusted(v) if k in INVENTORY_SECRETS else v) for k,v in protected.items() if k.startswith('ansible_')})
+            # User data stays !unsafe; only the two server-controlled values may be templated.
+            variables={**untrusted(variables),'narsika_targets':'all','narsika_artifact_root':str(tmp/'artifacts')}
+            inv=tmp/'inventory.yml'
+            write_private_yaml(inv,inventory)
+            varfile=tmp/'variables.yml'
+            write_private_yaml(varfile,variables)
             config=tmp/'ansible.cfg';config.write_text('[defaults]\nhost_key_checking = True\nretry_files_enabled = False\n[libssh_connection]\nhost_key_auto_add = False\n')
             process=subprocess.Popen([executable,'-i',str(inv),str(playpath),'--extra-vars','@'+str(varfile)],cwd=str(tmp),
                 env=safe_environment(tmp,config,Path(control_directory)),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True)
