@@ -110,9 +110,14 @@ def connection(device, profile=None, enable=True):
             try:client.disconnect()
             except Exception:pass
 
+# Device errors start a line. Interface descriptions are indented and RouterOS comments
+# are quoted, so anchoring avoids failing a configuration dump that merely mentions them.
+COMMAND_ERROR = re.compile(r'(?im)^(% (Invalid|Error|Incomplete|Ambiguous)|failure:|[ \t]*bad command name\b|[ \t]*syntax error\b)')
+
+
 def command(client,cmd):
     value=client.send_command(cmd)
-    if re.search(r'(?im)(^% (Invalid|Error|Incomplete|Ambiguous)|^failure:|bad command name|syntax error)',str(value)):
+    if COMMAND_ERROR.search(str(value)):
         fail('The device does not support the requested command.','UNSUPPORTED',502)
     return str(value)
 

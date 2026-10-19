@@ -5,6 +5,7 @@ import time
 import shutil
 import hashlib
 from pathlib import Path
+from sqlalchemy.orm import defer
 from ..models import db,OperationRun,Device,User,now
 from ..security import encrypt,decrypt,audit,APIError,fail
 
@@ -41,19 +42,31 @@ class JobManager:
                     from .scheduling import tick
                     if time.monotonic()-getattr(self,'last_schedule_tick',0)>=1:
                         tick();self.last_schedule_tick=time.monotonic()
-            except Exception:self.app.logger.error('Job dispatcher encountered an error.')
+            except Exception as ex:
+                # Log the type only; messages may contain device or credential details.
+                self.app.logger.error('Job dispatcher encountered an error: %s', type(ex).__name__)
     def dispatch_pending(self):
         """Keep target order without occupying a second worker for the same device."""
         capacity=max(0,self.app.config['JOB_WORKERS']-len(self.futures))
-        active_targets={row.device_id for row in OperationRun.query.filter_by(status='RUNNING')
+        # Status checks only; run output can be 100 KB and is not needed here.
+        light=(defer(OperationRun.output),defer(OperationRun.encrypted_parameters))
+        active_targets={row.device_id for row in OperationRun.query.options(*light).filter_by(status='RUNNING')
                         if row.device_id is not None}
-        for run in OperationRun.query.filter_by(status='PENDING').order_by(OperationRun.id).limit(32).all():
+        for run in OperationRun.query.options(*light).filter_by(status='PENDING').order_by(OperationRun.id).limit(32).all():
             if run.cancel_requested:
-                run.status='CANCELLED';run.finished_at=now();db.session.commit();continue
+                run.status='CANCELLED';run.finished_at=now()
+                run.output='Cancelled before execution. No commands were sent.'
+                audit('Run '+run.kind,str(run.device_id or run.id),'cancelled',run.output,actor_id=run.requested_by_id)
+                db.session.commit();continue
             if not capacity or run.device_id is not None and run.device_id in active_targets:
                 continue
             run.status='RUNNING';run.started_at=now();db.session.commit()
-            self.futures[run.id]=self.pool.submit(self.execute,run.id)
+            try:
+                self.futures[run.id]=self.pool.submit(self.execute,run.id)
+            except RuntimeError:
+                # The pool is shutting down; nothing was sent, so the run can wait for the next start.
+                run.status='PENDING';run.started_at=None;db.session.commit()
+                return
             if run.device_id is not None:active_targets.add(run.device_id)
             capacity-=1
     def execute(self,ident):
@@ -76,7 +89,7 @@ class JobManager:
                 if device and parameters.pop('_target',None)!=target_identity(device):
                     fail('Target connection settings changed after this run was queued. Review and submit it again.','TARGET_CHANGED',409)
                 from .scheduling import preflight
-                preflight(parameters)
+                preflight(parameters,run.device_id)
                 if run.kind=='discovery':
                     from .discovery import scan
                     detail=scan(run,parameters)
