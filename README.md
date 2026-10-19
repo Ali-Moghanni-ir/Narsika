@@ -15,6 +15,7 @@
 <p align="center">
   <a href="https://github.com/Ali-Moghanni-ir/Narsika/actions/workflows/validate.yml"><img src="https://github.com/Ali-Moghanni-ir/Narsika/actions/workflows/validate.yml/badge.svg" alt="CI status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue" alt="License: FSL-1.1-ALv2"></a>
+  <a href="https://github.com/Ali-Moghanni-ir/Narsika/releases/latest"><img src="https://img.shields.io/github/v/release/Ali-Moghanni-ir/Narsika?label=release" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-informational" alt="Python 3.12 to 3.14">
   <img src="https://img.shields.io/badge/status-public%20beta-orange" alt="Status: public beta">
 </p>
@@ -41,7 +42,7 @@ It is built for network engineers and IT teams who want a practical tool they ca
 
 ## Quick start
 
-Download the source (**Code → Download ZIP**, or `git clone https://github.com/Ali-Moghanni-ir/Narsika.git`), extract it completely, and open a terminal in the extracted folder.
+Download `narsika-X.Y.Z.zip` from the [latest release](https://github.com/Ali-Moghanni-ir/Narsika/releases/latest), extract it completely, and open a terminal in the extracted `narsika` folder. Each release also has a `.sha256` file for checking the download; see the [installation guide](docs/INSTALLATION.md#get-the-source).
 
 **Ubuntu 24.04 or newer (x64) — recommended**
 
@@ -115,7 +116,7 @@ Narsika serves plain HTTP by default. Run it on a trusted management network and
 
 ## Project status
 
-Narsika is in **public beta**. Every change runs the automated suite in CI on Python 3.12, 3.13 and 3.14, plus Docker and Windows installer checks. Health, backups and Playbooks have been used on MikroTik CHR, physical MikroTik and virtual Cisco devices. Device behaviour of the newest features — Firewall and scheduled tasks — still needs broader lab verification, so test changes on lab equipment with console access before using them in production.
+The current version is **0.9.0, a public beta**; see the [changelog](CHANGELOG.md). Every change runs the automated suite in CI on Python 3.12, 3.13 and 3.14, plus Docker and Windows installer checks. Health, backups and Playbooks have been used on MikroTik CHR, physical MikroTik and virtual Cisco devices. Device behaviour of the newest features — Firewall and scheduled tasks — still needs broader lab verification, so test changes on lab equipment with console access before using them in production.
 
 Next up: a platform driver layer, Linux server support, persistent monitoring with alerts, and an AI assistant that proposes changes for human approval. See the [roadmap](docs/ROADMAP.md).
 
