@@ -2,6 +2,11 @@
 
 Notable changes to Narsika. Dates are in UTC. Narsika does not publish version numbers yet; tagged releases are on the [roadmap](docs/ROADMAP.md).
 
+## Unreleased
+
+### Security
+- Playbook variables, scheduled-task variables and device credentials are passed to Ansible as data (`!unsafe`) and are never rendered as Jinja templates. Before this fix, an OPERATOR could run commands on the Narsika server by putting a Jinja expression in a Playbook variable, and a device password containing `{{`, `{%` or `{#` broke every Ansible job for that device.
+
 ## 2026-09-28
 
 ### Added
