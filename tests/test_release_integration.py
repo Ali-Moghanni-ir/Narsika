@@ -256,3 +256,8 @@ def test_version_is_shown_and_release_tags_must_match_it(admin, tmp_path):
     paths = {path.relative_to(ROOT).as_posix() for path in release_files()}
     assert {'app/version.py', 'tools/release_check.py', '.github/workflows/release.yml'} <= paths
     assert 'MANIFEST.sha256' in (ROOT / '.gitignore').read_text()
+    import yaml
+    workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
+    triggers = workflow[True]  # YAML 1.1 reads the key 'on' as True.
+    assert triggers['push']['tags'] == ['v*'] and 'tag' in triggers['workflow_dispatch']['inputs']
+    assert "github.ref == 'refs/heads/main'" in workflow['jobs']['release']['if']

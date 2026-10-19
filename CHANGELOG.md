@@ -14,7 +14,7 @@ Second public release, and the first with a version number (still Public Beta). 
 
 ### Added
 - A version number: shown in the page footer, in **Settings → Connection** and in `GET /api/system`.
-- Tagged releases: pushing a `vX.Y.Z` tag tests the tagged source and publishes a GitHub release with `narsika-X.Y.Z.zip` and a `.sha256` checksum.
+- Tagged releases: pushing a `vX.Y.Z` tag, or running the **Release Narsika** workflow on `main` from the Actions tab, tests the source and publishes a GitHub release with `narsika-X.Y.Z.zip` and a `.sha256` checksum.
 
 ### Security
 - Playbook variables, scheduled-task variables and device credentials are passed to Ansible as data (`!unsafe`) and are never rendered as Jinja templates. Before this fix, an OPERATOR could run commands on the Narsika server by putting a Jinja expression in a Playbook variable, and a device password containing `{{`, `{%` or `{#` broke every Ansible job for that device.
