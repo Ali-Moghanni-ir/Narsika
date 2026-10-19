@@ -123,7 +123,8 @@ def create_app(config=None):
             if not manager or not manager.available():
                 return jsonify(status='unavailable'),503
         return jsonify(status='ok')
-    app.context_processor(lambda:dict(csrf_token=csrf_token,static_root='/static'))
+    from .version import __version__
+    app.context_processor(lambda:dict(csrf_token=csrf_token,static_root='/static',app_version=__version__))
     with app.app_context(),startup_guard(app):
         @event.listens_for(db.engine,'connect')
         def sqlite_options(connection,record):

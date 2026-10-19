@@ -15,8 +15,17 @@
 <p align="center">
   <a href="https://github.com/Ali-Moghanni-ir/Narsika/actions/workflows/validate.yml"><img src="https://github.com/Ali-Moghanni-ir/Narsika/actions/workflows/validate.yml/badge.svg" alt="CI status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue" alt="License: FSL-1.1-ALv2"></a>
+  <a href="https://github.com/Ali-Moghanni-ir/Narsika/releases/latest"><img src="https://img.shields.io/github/v/release/Ali-Moghanni-ir/Narsika?label=release" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-informational" alt="Python 3.12 to 3.14">
   <img src="https://img.shields.io/badge/status-public%20beta-orange" alt="Status: public beta">
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#documentation">Documentation</a> ·
+  <a href="docs/ROADMAP.md">Roadmap</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 ![Narsika workspace illustration](app/static/img/narsika-social-banner.png)
@@ -32,7 +41,7 @@ It is built for network engineers and IT teams who want a practical tool they ca
 | Area | What you get |
 |---|---|
 | **Inventory** | Cisco IOS / IOS XE and MikroTik RouterOS devices, groups, reusable SSH and SNMPv3 credential profiles, notes, and bounded IPv4 discovery of candidates in allowed ranges. |
-| **Monitoring** | On-demand health (reachability, identity, uptime, CPU, memory), interface state and SNMPv3 traffic rates while the page is open. |
+| **Monitoring** | On-demand health (reachability, identity, uptime, CPU, memory and, where the device reports it, temperature), interface state and SNMPv3 traffic rates while the page is open. |
 | **Backups** | Encrypted running-configuration backups with SHA-256 checks, download and side-by-side comparison. |
 | **Automation** | A Cisco and MikroTik Ansible Playbook library with preview/apply mode, admin uploads, VLAN management and a persistent operation queue with live logs and cancellation. |
 | **Firewall** | Read a device's IPv4 filter rules, stage Allow/Block changes, review the exact commands, take a mandatory backup, apply, and verify the result over a fresh SSH connection. Create new Cisco named extended ACLs. |
@@ -41,7 +50,9 @@ It is built for network engineers and IT teams who want a practical tool they ca
 
 ## Quick start
 
-Download the source (**Code → Download ZIP**, or `git clone https://github.com/Ali-Moghanni-ir/Narsika.git`), extract it completely, and open a terminal in the extracted folder.
+**Requirements:** a 64-bit Ubuntu 24.04+ server (or Windows 10/11 with hardware virtualization), about 4 GiB of RAM and 2 GiB of free disk, Internet access during installation, and SSH reachability to your devices (plus UDP 161 for SNMPv3).
+
+Download `narsika-X.Y.Z.zip` from the [latest release](https://github.com/Ali-Moghanni-ir/Narsika/releases/latest), extract it completely, and open a terminal in the extracted `narsika` folder. Each release also has a `.sha256` file for checking the download; see the [installation guide](docs/INSTALLATION.md#get-the-source).
 
 **Ubuntu 24.04 or newer (x64) — recommended**
 
@@ -65,6 +76,8 @@ bash run_linux.sh --docker
 
 Sign in as `admin` with the password printed by the installer; you must choose a new password immediately. There is no default `admin/admin`.
 
+To upgrade a native Ubuntu installation, extract the new release into a fresh folder and run `sudo narsika-admin upgrade /absolute/path/to/new/narsika`. Data, accounts and keys are kept; see [Upgrading](docs/OPERATIONS.md#upgrading).
+
 Full requirements, mirrors for slow downloads, upgrades and troubleshooting: **[Installation guide](docs/INSTALLATION.md)**. Your first device, SSH trust and first backup: **[Getting started](docs/GETTING-STARTED.md)**.
 
 ## Documentation
@@ -86,13 +99,13 @@ Full requirements, mirrors for slow downloads, upgrades and troubleshooting: **[
 |---|---|
 | **ADMIN** | Everything: users, settings, devices, credentials, Playbook uploads, all operations and high-risk firewall changes |
 | **OPERATOR** | Monitoring, backups, existing Playbooks, VLAN operations, scheduled tasks they own and scoped firewall changes |
-| **VIEWER** | Read-only: inventory, monitoring, backups, run history and audit records |
+| **VIEWER** | Read-only: inventory, monitoring, the backup list (not configuration contents), run history and audit records |
 
 Roles belong to Narsika accounts; operating-system users are not mapped to them.
 
 ## How it is built
 
-Python 3.12–3.14 and Flask, Jinja templates with custom CSS and vanilla JavaScript, SQLite in WAL mode, Ansible Core with Netmiko and SNMPv3 for device access, served by Gunicorn under systemd (or Docker on Windows). There is no Redis, Celery, Node.js build step or external database: one small server is enough.
+Python 3.12–3.14 and Flask, Jinja templates with custom CSS and vanilla JavaScript, SQLite in WAL mode, Ansible Core with Netmiko and SNMPv3 for device access, served by Gunicorn under systemd or in a Docker container. There is no Redis, Celery, Node.js build step or external database: one small server is enough.
 
 ```mermaid
 flowchart LR
@@ -115,13 +128,15 @@ Narsika serves plain HTTP by default. Run it on a trusted management network and
 
 ## Project status
 
-Narsika is in **public beta**. Every change runs the automated suite in CI on Python 3.12, 3.13 and 3.14, plus Docker and Windows installer checks. Health, backups and Playbooks have been used on MikroTik CHR, physical MikroTik and virtual Cisco devices. Device behaviour of the newest features — Firewall and scheduled tasks — still needs broader lab verification, so test changes on lab equipment with console access before using them in production.
+The current version is **0.9.0, a public beta**; see the [changelog](CHANGELOG.md). Every change runs the automated suite in CI on Python 3.12, 3.13 and 3.14, plus Docker and Windows installer checks. Health, backups and Playbooks have been used on MikroTik CHR, physical MikroTik and virtual Cisco devices. Device behaviour of the newest features — Firewall and scheduled tasks — still needs broader lab verification, so test changes on lab equipment with console access before using them in production.
 
 Next up: a platform driver layer, Linux server support, persistent monitoring with alerts, and an AI assistant that proposes changes for human approval. See the [roadmap](docs/ROADMAP.md).
 
 ## Contributing
 
-Bug reports and feature ideas are welcome in [Issues](https://github.com/Ali-Moghanni-ir/Narsika/issues). Before opening a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md).
+Bug reports, lab results and feature ideas are welcome in [Issues](https://github.com/Ali-Moghanni-ir/Narsika/issues). Before opening a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md).
+
+If Narsika is useful to you, a ⭐ on GitHub helps other network engineers find it.
 
 ## License
 
