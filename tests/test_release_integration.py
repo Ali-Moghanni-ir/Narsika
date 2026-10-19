@@ -238,3 +238,21 @@ def test_final_readme_and_brand_assets_are_packaged(admin, client):
     auth = (ROOT / 'app/templates/auth_base.html').read_text()
     assert 'narsika-relay.png' in auth  # The large sign-in illustration is preserved.
     assert client.get('/static/img/narsika-logo-180.png').status_code == 200
+
+
+def test_version_is_shown_and_release_tags_must_match_it(admin, tmp_path):
+    from app.version import __version__
+    from tools.release_check import changelog_section, check, current_version
+    assert current_version() == __version__
+    notes = check('v' + __version__)
+    assert '### ' in notes and '## ' + __version__ not in notes
+    for tag in (__version__, 'v' + __version__ + '.1', 'v0.0.0'):
+        with pytest.raises(ValueError):
+            check(tag)
+    with pytest.raises(ValueError):
+        changelog_section('9.9.9', (ROOT / 'CHANGELOG.md').read_text())
+    assert admin.get('/api/system').json['data']['version'] == __version__
+    assert f'Narsika {__version__} · Network operations' in admin.get('/index.html').get_data(as_text=True)
+    paths = {path.relative_to(ROOT).as_posix() for path in release_files()}
+    assert {'app/version.py', 'tools/release_check.py', '.github/workflows/release.yml'} <= paths
+    assert 'MANIFEST.sha256' in (ROOT / '.gitignore').read_text()

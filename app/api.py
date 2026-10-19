@@ -251,7 +251,8 @@ def system_info():
     manager=current_app.extensions.get('jobs')
     from sqlalchemy import func
     counts=dict(db.session.query(OperationRun.status,func.count(OperationRun.id)).filter(OperationRun.status.in_(('PENDING','RUNNING'))).group_by(OperationRun.status))
-    return ok({'database':'SQLite','worker_available':bool(manager and manager.available()),'ansible_available':bool(ansible_executable('ansible-playbook')),'allowed_networks':current_app.config['ALLOWED_NETWORKS'],'scan_max_hosts':current_app.config['SCAN_MAX_HOSTS'],'snmp':'v3 authPriv / SHA-256 / AES-128','queue':{'pending':counts.get('PENDING',0),'running':counts.get('RUNNING',0),'capacity':32}})
+    from .version import __version__
+    return ok({'version':__version__,'database':'SQLite','worker_available':bool(manager and manager.available()),'ansible_available':bool(ansible_executable('ansible-playbook')),'allowed_networks':current_app.config['ALLOWED_NETWORKS'],'scan_max_hosts':current_app.config['SCAN_MAX_HOSTS'],'snmp':'v3 authPriv / SHA-256 / AES-128','queue':{'pending':counts.get('PENDING',0),'running':counts.get('RUNNING',0),'capacity':32}})
 
 @api.get('/devices/<int:ident>/health')
 @require()

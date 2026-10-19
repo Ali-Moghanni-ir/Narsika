@@ -25,14 +25,19 @@ You do **not** need to install Python, pip, Ansible, Gunicorn, SSH tools or UFW 
 
 ## Get the source
 
-Download the repository as a ZIP from GitHub (**Code → Download ZIP**) and extract it completely, or clone it:
+Download `narsika-X.Y.Z.zip` and `narsika-X.Y.Z.zip.sha256` from the [latest release](https://github.com/Ali-Moghanni-ir/Narsika/releases/latest), check the archive and extract it:
 
 ```bash
-git clone https://github.com/Ali-Moghanni-ir/Narsika.git
-cd Narsika
+sha256sum -c narsika-0.9.0.zip.sha256
+unzip narsika-0.9.0.zip
+cd narsika
 ```
 
-Run the installer from inside the extracted folder. Use a fresh folder for each new version.
+On Windows, compare the output of `Get-FileHash .\narsika-0.9.0.zip -Algorithm SHA256` (PowerShell) with the value in the `.sha256` file, then extract the ZIP completely.
+
+Run the installer from inside the extracted folder. Use a fresh folder for each new version. The version is shown in the page footer and under **Settings → Connection**.
+
+To try unreleased changes instead, clone the default branch (`git clone https://github.com/Ali-Moghanni-ir/Narsika.git`). It may contain work that has not been through a release.
 
 ## Ubuntu (native)
 
