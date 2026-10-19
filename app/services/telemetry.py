@@ -159,7 +159,9 @@ def calculate_rates(rows,old,elapsed,uptime,old_uptime):
     for row in rows:
         row['rx_bps']=row['tx_bps']=None
         before=previous.get(row['index'])
-        if not before or not 0<elapsed<=120 or uptime<old_uptime or row.get('discontinuity') is None or row.get('discontinuity')!=before.get('discontinuity'):continue
+        # A device that does not report ifCounterDiscontinuityTime returns None in both
+        # samples; that is "unsupported", not a counter reset. A change is still a reset.
+        if not before or not 0<elapsed<=120 or uptime<old_uptime or row.get('discontinuity')!=before.get('discontinuity'):continue
         if row.get('oper_status')!=1:continue
         for field,target in (('rx_bytes','rx_bps'),('tx_bytes','tx_bps')):
             a,b=row.get(field),before.get(field)
