@@ -4,12 +4,13 @@ import yaml
 from flask import current_app
 from ..models import db, Playbook
 from ..security import fail
+from . import platforms
 
 ROOT=Path(__file__).resolve().parents[2]
 
 def seed_catalog():
     # Only actual packaged playbooks are registered; no demonstration records are seeded.
-    for vendor in ('Cisco','MikroTik'):
+    for vendor in platforms.vendors():
         for file in sorted((ROOT/'Playbooks'/vendor).glob('*.yml')):
             name=vendor+'/'+file.name
             existing=Playbook.query.filter_by(name=name,builtin=True).first()
@@ -43,7 +44,7 @@ def upload(file,vendor,replace=False):
     from werkzeug.utils import secure_filename
     name=secure_filename(file.filename or '')
     if not name or not name.lower().endswith(('.yml','.yaml')):fail('Upload a .yml or .yaml file.')
-    if vendor not in ('Any','Cisco','MikroTik'):fail('Invalid vendor.')
+    if vendor not in ('Any',)+platforms.vendors():fail('Invalid vendor.')
     raw=file.read(2*1024*1024+1)
     if not raw or len(raw)>2*1024*1024:fail('Upload a non-empty file up to 2 MB.')
     try:raw.decode('utf-8')

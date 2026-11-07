@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from flask import current_app
 from ..models import db, now
 from ..security import APIError, decrypt, fail
-from .network import device_lock, connection, command, ping
+from .network import device_lock, ping
+from . import platforms
 
 COUNTERS={}
 SAMPLE_LOCK=threading.Lock()
@@ -108,16 +109,8 @@ def health(device):
             temperature_celsius=None,model=None,os_version=None,reachability=reachable,connection_status='UNKNOWN',
             status='unknown',sampled_at=now(),error=None)
         try:
-            with connection(device) as client:
-                if device.platform=='cisco':
-                    version=command(client,'show version')
-                    def optional(cmd):
-                        try:return command(client,cmd)
-                        except APIError:return ''
-                    result.update(parse_cisco(version,optional('show processes cpu'),optional('show memory statistics'),optional('show environment temperature status')))
-                else:
-                    result.update(parse_routeros(command(client,'/system resource print')))
-                result.update(status='online' if reachable is not False else 'degraded',connection_status='CONNECTED')
+            result.update(platforms.driver(device).read_health(device))
+            result.update(status='online' if reachable is not False else 'degraded',connection_status='CONNECTED')
         except APIError as ex:
             failed=ex.code in ('UNREACHABLE','TIMEOUT','DEVICE_ERROR')
             result.update(connection_status=ex.code,status='degraded' if reachable or ex.code=='AUTH_FAILED' else 'offline' if reachable is False and failed else 'unknown',error={'code':ex.code,'message':ex.message})
@@ -191,22 +184,11 @@ def interfaces(device):
                 if len(COUNTERS)>=512:COUNTERS.pop(next(iter(COUNTERS)))
                 COUNTERS[counter_key]=(rows,tick,uptime,identity)
             for row in rows:row['status']='online' if row.get('oper_status')==1 else 'offline' if row.get('oper_status')==2 else 'unknown'
-        elif device.platform=='cisco':
-            with connection(device) as client:
-                parsed=client.send_command('show interfaces',use_textfsm=True)
-                if not isinstance(parsed,list):fail('Interface parser is unavailable for this device output. Configure SNMPv3.','UNSUPPORTED',502)
-                for i,r in enumerate(parsed):
-                    rate=lambda field: number(r.get(field))
-                    state=r.get('link_status','').lower()
-                    rows.append(dict(index=i+1,name=r.get('interface',''),status='online' if state=='up' and r.get('protocol_status','').lower()=='up' else 'offline',speed_mbps=speed_mbps(r.get('speed')),
-                        rx_bps=rate('input_rate'),tx_bps=rate('output_rate'),rx_errors=rate('input_errors'),tx_errors=rate('output_errors')))
         else:
-            with connection(device) as client:
-                # The CLI prints read-only interface state; counters/rates require SNMPv3.
-                output=command(client,':foreach i in=[/interface find] do={ :put ([/interface get $i name]."|".[/interface get $i running]."|".[/interface get $i disabled]) }')
-                for line in output.splitlines():
-                    parts=line.strip().split('|')
-                    if len(parts)==3 and parts[1] in ('true','false'):
-                        rows.append(dict(index=len(rows)+1,name=parts[0],status='online' if parts[1]=='true' else 'offline',rx_bps=None,tx_bps=None,speed_mbps=None,rx_errors=None,tx_errors=None))
-                if not rows:fail('Interface output is unsupported. Configure SNMPv3 for IF-MIB collection.','UNSUPPORTED',502)
-        return dict(items=rows,sampled_at=sampled,transport=transport,rate_note='Rates require two consecutive valid counter samples.' if transport=='SNMPv3' else 'SSH rates, when present, are the device-reported averaging window.')
+            driver=platforms.driver(device)
+            rows=driver.read_interfaces(device)
+        if transport=='SNMPv3':
+            note='Rates require two consecutive valid counter samples.'
+        else:
+            note=getattr(driver,'INTERFACE_RATE_NOTE','SSH rates, when present, are the device-reported averaging window.')
+        return dict(items=rows,sampled_at=sampled,transport=transport,rate_note=note)

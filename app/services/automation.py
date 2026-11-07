@@ -13,14 +13,15 @@ from flask import current_app
 import yaml
 from ..models import db,Playbook,RunArtifact
 from ..security import decrypt,fail,integer,text,address
-from . import catalog
+from . import catalog, platforms
 from .network import secret,known_path,device_lock
 from .backups import capture,store_backup
 from tools.ansible_environment import environment as ansible_environment, executable as ansible_executable
 
 ROOT=Path(__file__).resolve().parents[2]
 # Credential fields copied into the inventory; they come from users, not from Narsika.
-INVENTORY_SECRETS = ('ansible_user', 'ansible_password', 'ansible_become_password', 'ansible_private_key_passphrase')
+INVENTORY_SECRETS = ('ansible_user', 'ansible_password', 'ansible_become_password', 'ansible_private_key_passphrase',
+                     'ansible_ssh_private_key', 'ansible_ssh_private_key_passphrase')
 
 
 class Untrusted(str):
@@ -59,7 +60,7 @@ def write_private_yaml(path: Path, data: object) -> None:
 def validate_operation(kind,params,device):
     if 'save_config' in params and not isinstance(params['save_config'],bool):fail('save_config must be true or false.')
     if kind=='vlan':
-        if device.platform!='cisco':fail('VLAN management requires Cisco IOS. Use a RouterOS playbook for MikroTik.')
+        platforms.require(device,platforms.VLAN)
         ident=integer(params.get('vlan_id'),'VLAN ID',2,4094)
         if ident in (1002,1003,1004,1005):fail('Reserved VLAN IDs cannot be changed.')
         action=params.get('operation','create')
@@ -135,19 +136,11 @@ def run_ansible(run,params,device,*,lock_held=False):
             else:
                 playpath=tmp/'operation.yml';playpath.write_text(yaml.safe_dump(configuration_play(run.kind,params,device)))
                 variables={}
-            inventory={'all':{'children':{k:{'hosts':{'target':{}}} for k in ('cisco','mikrotik','cisco_routers')},'hosts':{'target':{'ansible_host':device.ip_address}}}}
+            driver=platforms.driver(device)
             # All groups refer to the same selected host, preserving original playbook host patterns.
-            protected=dict(ansible_host=device.ip_address,ansible_port=device.ssh_port,ansible_user=device.credential.username,
-                ansible_password=values.get('password',''),ansible_become=device.platform=='cisco' and bool(values.get('enable_password')),ansible_become_method='enable',
-                ansible_become_password=values.get('enable_password',''),ansible_connection='ansible.netcommon.network_cli',
-                ansible_network_os='cisco.ios.ios' if device.platform=='cisco' else 'community.routeros.routeros',
-                ansible_network_cli_ssh_type='libssh',ansible_libssh_look_for_keys=False,ansible_host_key_checking=True,
-                ansible_libssh_host_key_checking=True,ansible_libssh_host_key_auto_add=False,ansible_command_timeout=45,
-                narsika_targets='all',narsika_artifact_root=str(tmp/'artifacts'))
-            if values.get('private_key'):
-                key=tmp/'identity';key.write_text(values['private_key']);key.chmod(0o600)
-                protected.update(ansible_private_key_file=str(key),ansible_private_key_passphrase=values.get('passphrase',''))
-            inventory['all']['hosts']['target'].update({k:(untrusted(v) if k in INVENTORY_SECRETS else v) for k,v in protected.items() if k.startswith('ansible_')})
+            inventory={'all':{'children':{k:{'hosts':{'target':{}}} for k in driver.ANSIBLE_GROUPS},'hosts':{'target':{'ansible_host':device.ip_address}}}}
+            host_vars=driver.ansible_host_vars(device,device.credential.username,values,tmp)
+            inventory['all']['hosts']['target'].update({k:(untrusted(v) if k in INVENTORY_SECRETS else v) for k,v in host_vars.items()})
             # User data stays !unsafe; only the two server-controlled values may be templated.
             variables={**untrusted(variables),'narsika_targets':'all','narsika_artifact_root':str(tmp/'artifacts')}
             inv=tmp/'inventory.yml'
@@ -155,8 +148,10 @@ def run_ansible(run,params,device,*,lock_held=False):
             varfile=tmp/'variables.yml'
             write_private_yaml(varfile,variables)
             config=tmp/'ansible.cfg';config.write_text('[defaults]\nhost_key_checking = True\nretry_files_enabled = False\n[libssh_connection]\nhost_key_auto_add = False\n')
+            environment=safe_environment(tmp,config,Path(control_directory))
+            environment.update(driver.ansible_environment(values,Path(control_directory)))
             process=subprocess.Popen([executable,'-i',str(inv),str(playpath),'--extra-vars','@'+str(varfile)],cwd=str(tmp),
-                env=safe_environment(tmp,config,Path(control_directory)),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True)
+                env=environment,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True)
             start=time.monotonic();selector=selectors.DefaultSelector();selector.register(process.stdout,selectors.EVENT_READ)
             os.set_blocking(process.stdout.fileno(),False);buffer=b'';status=None;events=0
             try:

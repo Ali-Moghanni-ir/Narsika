@@ -13,6 +13,8 @@ import paramiko
 from flask import current_app
 from ..security import address, decrypt, fail, APIError
 
+# Netmiko session types for the platforms Narsika reaches through a network CLI.
+NETMIKO_DEVICE_TYPES={'cisco':'cisco_ios','mikrotik':'mikrotik_routeros'}
 KEY_LOCK=threading.Lock()
 SLOTS=threading.BoundedSemaphore(8)
 DEVICE_LOCKS={}
@@ -74,6 +76,15 @@ def secret(profile):
     if not profile or profile.kind!='ssh':fail('Assign an SSH credential profile first.','CREDENTIAL_REQUIRED',422)
     return decrypt(profile.encrypted_secret)
 
+def private_key(values: dict) -> paramiko.PKey:
+    """Load a stored SSH private key with its optional passphrase."""
+    for cls in (paramiko.Ed25519Key,paramiko.RSAKey,paramiko.ECDSAKey):
+        try:
+            return cls.from_private_key(io.StringIO(values['private_key']),password=values.get('passphrase') or None)
+        except (paramiko.SSHException,ValueError):
+            continue
+    fail('Private key or passphrase is invalid.','AUTH_FAILED',422)
+
 @contextmanager
 def connection(device, profile=None, enable=True):
     from netmiko import ConnectHandler
@@ -84,17 +95,14 @@ def connection(device, profile=None, enable=True):
     host=key_host(device.ip_address,device.ssh_port)
     if host not in paramiko.HostKeys(str(known_path())):
         fail('Verify and trust the SSH host key from the device actions menu.','HOST_KEY_REQUIRED',409)
-    args=dict(device_type='cisco_ios' if device.platform=='cisco' else 'mikrotik_routeros',host=device.ip_address,
+    if device.platform not in NETMIKO_DEVICE_TYPES:
+        fail('This platform is not reached through a network CLI session.','UNSUPPORTED',422)
+    args=dict(device_type=NETMIKO_DEVICE_TYPES[device.platform],host=device.ip_address,
         port=device.ssh_port,username=credential.username,password=values.get('password',''),secret=values.get('enable_password',''),
         ssh_strict=True,system_host_keys=False,alt_host_keys=True,alt_key_file=str(known_path()),
         conn_timeout=6,auth_timeout=8,banner_timeout=8,timeout=12,read_timeout_override=20,allow_agent=False,use_keys=False)
     if values.get('private_key'):
-        key=None
-        for cls in (paramiko.Ed25519Key,paramiko.RSAKey,paramiko.ECDSAKey):
-            try:key=cls.from_private_key(io.StringIO(values['private_key']),password=values.get('passphrase') or None);break
-            except (paramiko.SSHException,ValueError):continue
-        if key is None:fail('Private key or passphrase is invalid.','AUTH_FAILED',422)
-        args.update(pkey=key,use_keys=True)
+        args.update(pkey=private_key(values),use_keys=True)
     client=None
     try:
         client=ConnectHandler(**args)
@@ -122,12 +130,7 @@ def command(client,cmd):
     return str(value)
 
 def export_configuration(device):
-    with connection(device) as client:
-        if device.platform=='cisco':return command(client,'show running-config')
-        version=command(client,':put [/system resource get version]')
-        if not version.strip().startswith('7.'):
-            # RouterOS 6 has a different explicit redaction flag.
-            return command(client,'/export hide-sensitive')
-        output=command(client,'/export terse')
-        if '#error exporting' in output.lower():fail('RouterOS returned a partial export.','PARTIAL_EXPORT',502)
-        return output
+    """The platform driver's configuration backup text."""
+    from . import platforms
+    platforms.require(device,platforms.BACKUP)
+    return platforms.driver(device).export_configuration(device)
