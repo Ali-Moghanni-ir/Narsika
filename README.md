@@ -7,7 +7,7 @@
 <h3 align="center">Your network. One operational view.</h3>
 
 <p align="center">
-  A focused, self-hosted workspace for operating Cisco and MikroTik networks.
+  A focused, self-hosted workspace for operating Cisco and MikroTik networks and the Linux servers on them.
 </p>
 
 <p align="center"><strong>Public Beta · Free to use, always.</strong></p>
@@ -40,10 +40,10 @@ It is built for network engineers and IT teams who want a practical tool they ca
 
 | Area | What you get |
 |---|---|
-| **Inventory** | Cisco IOS / IOS XE and MikroTik RouterOS devices, groups, reusable SSH and SNMPv3 credential profiles, notes, and bounded IPv4 discovery of candidates in allowed ranges. |
-| **Monitoring** | On-demand health (reachability, identity, uptime, CPU, memory and, where the device reports it, temperature), interface state and SNMPv3 traffic rates while the page is open. |
-| **Backups** | Encrypted running-configuration backups with SHA-256 checks, download and side-by-side comparison. |
-| **Automation** | A Cisco and MikroTik Ansible Playbook library with preview/apply mode, admin uploads, VLAN management and a persistent operation queue with live logs and cancellation. |
+| **Inventory** | Cisco IOS / IOS XE and MikroTik RouterOS devices and Linux servers, groups, reusable SSH and SNMPv3 credential profiles, notes, and bounded IPv4 discovery of candidates in allowed ranges. |
+| **Monitoring** | On-demand health (reachability, identity, uptime, CPU, memory and, where the device reports it, temperature), interface state and SNMPv3 traffic rates while the page is open. Linux servers add load, filesystem usage and failed systemd units, and report interface rates over SSH. |
+| **Backups** | Encrypted running-configuration backups (on Linux, a read-only configuration snapshot) with SHA-256 checks, download and side-by-side comparison. |
+| **Automation** | A Cisco, MikroTik and Linux Ansible Playbook library with preview/apply mode, admin uploads, VLAN management and a persistent operation queue with live logs and cancellation. |
 | **Firewall** | Read a device's IPv4 filter rules, stage Allow/Block changes, review the exact commands, take a mandatory backup, apply, and verify the result over a fresh SSH connection. Create new Cisco named extended ACLs. |
 | **Schedules** | Run backups or Playbooks one time, every few hours, daily or weekly, with explicit time zones and per-occurrence history. |
 | **Access control** | ADMIN, OPERATOR and VIEWER roles enforced on the server, forced password changes, session revocation and a searchable audit log. |
@@ -130,7 +130,9 @@ Narsika serves plain HTTP by default. Run it on a trusted management network and
 
 The current version is **0.9.0, a public beta**; see the [changelog](CHANGELOG.md). Every change runs the automated suite in CI on Python 3.12, 3.13 and 3.14, plus Docker and Windows installer checks. Health, backups and Playbooks have been used on MikroTik CHR, physical MikroTik and virtual Cisco devices. Device behaviour of the newest features — Firewall and scheduled tasks — still needs broader lab verification, so test changes on lab equipment with console access before using them in production.
 
-Next up: a platform driver layer, Linux server support, persistent monitoring with alerts, and an AI assistant that proposes changes for human approval. See the [roadmap](docs/ROADMAP.md).
+Linux server support is new: it is tested automatically over real SSH sessions, but not yet verified across distributions in a lab.
+
+Next up: HTTPS out of the box, persistent monitoring with alerts, and an AI assistant that proposes changes for human approval. See the [roadmap](docs/ROADMAP.md).
 
 ## Contributing
 

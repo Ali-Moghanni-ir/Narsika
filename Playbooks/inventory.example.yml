@@ -22,3 +22,10 @@ all:
       hosts:
         mikrotik_lab:
           ansible_host: 192.0.2.11
+    linux:
+      vars:
+        # Linux servers use OpenSSH, not network_cli; keep host key checking enabled.
+        ansible_connection: ssh
+      hosts:
+        linux_lab:
+          ansible_host: 192.0.2.12

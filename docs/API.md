@@ -64,6 +64,12 @@ Review returns `{id, checksum, expires_at, status, created_at, run_id, plan}` in
 
 ## Core API
 
+### Platforms
+
+`GET /api/bootstrap` includes `platforms`: the platform registry as `[{id, label, vendor, capabilities}]`, for example `{"id": "linux", "label": "Linux server", "vendor": "Linux", "capabilities": ["backup", "health", "interfaces", "playbooks"]}`. Capabilities are `health`, `interfaces`, `backup`, `playbooks`, `vlan` and `firewall`. Every operation checks them on the server before any network access and answers `422 UNSUPPORTED` when the device's platform lacks one, for example VLAN or Firewall requests for a Linux server.
+
+Linux health responses contain the common fields (`cpu_percent`, `memory_percent`, `memory_used_bytes`, `memory_free_bytes`, `uptime`, `temperature_celsius`, `model`, `os_version`) and add `memory_total_bytes`, `uptime_seconds`, `kernel`, `architecture`, `hostname`, `load_average` (1, 5 and 15 minutes), `cpu_count`, `disk_percent` and `disk_mount` (the fullest local filesystem), `filesystems` (`mount`, `filesystem`, `size_bytes`, `used_bytes`, `available_bytes`, `used_percent`), `failed_units` and `failed_unit_names`. On Linux, `memory_free_bytes` is the memory available to applications (`MemAvailable`), and `temperature_celsius` is the highest plausible sensor reading. `failed_units` is `null` when systemd could not be asked, which is different from `0`. Linux interface rows add `rx_bytes` and `tx_bytes`; their `index` is the kernel interface index.
+
 ### Compact workspace reads and worker state
 
 The default `GET /api/bootstrap` response is unchanged. An optional `view` accepts a current page ID (`inventory`, `health`, `interfaces`, `discovery`, `playbooks`, `vlan`, `backups`, `audit`, `settings`, `firewall` or `schedules` as registered by the server). Page-specific responses retain inventory and metadata but leave `audit` empty; audit history is still available from `/api/audit`. Administrators receive the full account list only for the settings view; other page views include only the current account. Unknown views return validation error 422. These compact reads do not change authorization.
@@ -95,7 +101,7 @@ Success: `{"data": {...}, "meta": {}}`. Collections use `data.items`. Accepted r
 | `/api/system` | GET | Capabilities and allowed target scope |
 | `/api/devices/{id}/health` | GET | Actual on-demand SSH/ICMP collection |
 | `/api/devices/{id}/interfaces` | GET | Actual SNMPv3 or SSH interface collection |
-| `/api/devices/{id}/vlans` | GET | Cisco IOS VLAN table |
+| `/api/devices/{id}/vlans` | GET | Cisco IOS VLAN table; `422 UNSUPPORTED` for platforms without VLAN management |
 | `/api/devices/{id}/host-key` | GET, POST | Administrator fetches or trusts an explicitly verified fingerprint |
 | `/api/discovery/scans` | GET, POST | Operator/admin scan history and bounded SSH discovery |
 | `/api/discovery/scans/{id}` | GET | Run status and observed candidates |
@@ -115,9 +121,9 @@ Success: `{"data": {...}, "meta": {}}`. Collections use `data.items`. Accepted r
 | `/api/audit` | GET | Server-recorded current and legacy events |
 | `/healthz` | GET | Unauthenticated database and required-dispatcher health check |
 
-Device fields: `name`, `ip_address`, `platform` (`cisco` or `mikrotik`), `ssh_port`, `snmp_port`, `group_id`, `credential_id`, `snmp_credential_id`, `model`, `notes`. Empty foreign-key fields use JSON null. Unknown fields are rejected.
+Device fields: `name`, `ip_address`, `platform` (`cisco`, `mikrotik` or `linux`), `ssh_port`, `snmp_port`, `group_id`, `credential_id`, `snmp_credential_id`, `model`, `notes`. Empty foreign-key fields use JSON null. Unknown fields are rejected.
 
-SSH credential fields: `name`, `username`, `kind: "ssh"`, `password` or `private_key`, optional `enable_password`, `passphrase`. SNMP: `kind: "snmpv3"`, `auth_password`, `priv_password`; SHA-256 + AES-128 authPriv. Updating a secret requires supplying it; omitting it preserves its value. Passwords and private keys never appear in normal JSON responses.
+SSH credential fields: `name`, `username`, `kind: "ssh"`, `password` or `private_key`, optional `enable_password` (Cisco enable; on Linux the sudo password, defaulting to `password`), `passphrase`. SNMP: `kind: "snmpv3"`, `auth_password`, `priv_password`; SHA-256 + AES-128 authPriv. Updating a secret requires supplying it; omitting it preserves its value. Passwords and private keys never appear in normal JSON responses.
 
 Example operation shape (substitute actual IDs and reviewed values):
 

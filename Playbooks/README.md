@@ -1,6 +1,6 @@
 # Narsika Playbook library
 
-This folder holds the Ansible Playbooks that Narsika ships and lists in **Playbooks**: five for Cisco, five for MikroTik, and the six original Playbooks from the first version of the project. You can run them from the web interface or directly with `ansible-playbook`.
+This folder holds the Ansible Playbooks that Narsika ships and lists in **Playbooks**: five for Cisco, five for MikroTik, four for Linux servers, and the six original Playbooks from the first version of the project. You can run them from the web interface or directly with `ansible-playbook`.
 
 ## Bundled Playbooks
 
@@ -16,6 +16,10 @@ This folder holds the Ansible Playbooks that Narsika ships and lists in **Playbo
 | `MikroTik/03_ensure_vlan_interface.yml` | VLAN interface on an existing parent | Created if missing; stops on conflict; bridge filtering unchanged |
 | `MikroTik/04_dhcp_reservation.yml` | Reserve an IP for a MAC on an existing DHCP server | Checks for conflicts; dynamic leases are not converted |
 | `MikroTik/05_static_route.yml` | Named route in the `main` table | Checks existing routes; a default route needs explicit permission |
+| `Linux/01_health_report.yml` | System facts, load, memory, filesystems and failed systemd units | Read-only, without sudo; JSON report on the controller |
+| `Linux/02_package_updates.yml` | Pending package updates (apt, dnf or yum) | Read-only; with `refresh_package_index: true` it refreshes the package index with sudo and installs nothing |
+| `Linux/03_ensure_package.yml` | Install, upgrade or remove one package | Records the installed version first; refuses to remove packages the server depends on, such as `openssh-server`, `sudo` and `systemd` |
+| `Linux/04_manage_service.yml` | Start, stop, restart or reload one systemd unit, and enable or disable it | Records the unit state first; SSH and network units can be stopped, restarted or disabled only with `allow_management_service_change: true` |
 
 `Original/` keeps the six Playbooks of the original project; they appear in the catalog with an *Original* prefix. The two original access-list Playbooks (`cisco_acl.yml`, `mikrotik_acl.yml`) can be run only by an administrator and cannot be scheduled — use [Firewall](../docs/FIREWALL.md) for filter changes.
 
@@ -25,7 +29,7 @@ Example variables for every Playbook are in `examples/<vendor>/`.
 
 The Playbooks that change configuration take a boolean `narsika_apply`, which defaults to `false`:
 
-- **`false` (Preview)** — inputs are validated and the plan is shown; the device configuration is not changed.
+- **`false` (Preview)** — inputs are validated and the plan is shown; the device configuration is not changed. On Linux, the package manager or systemd also runs in check mode with sudo to report whether anything would change.
 - **`true` (Apply)** — the change is made.
 
 In the web interface, **Operation mode** sets `narsika_apply` for you. Changing Playbooks run one host at a time (`serial: 1`) and stop at the first error. This is not a transaction: there is no automatic rollback.
@@ -34,6 +38,7 @@ In the web interface, **Operation mode** sets `narsika_apply` for you. Changing 
 
 - Cisco IOS or IOS XE. VLAN and access-port Playbooks need a switch with L2 features, not just any Cisco router. Check preflight output against your IOS version.
 - MikroTik Playbooks target **RouterOS 7**; the major version is checked before export or change. RouterOS 6 is not supported.
+- Linux Playbooks need Python 3 on the server (standard on current distributions). The health and update reports run without sudo. Package and service Playbooks use sudo, also in Preview: the sudo password is the credential profile's enable/sudo password, or its SSH password when that field is empty; passwordless sudo also works. Package Playbooks support apt, dnf and yum; the service Playbook needs systemd. On Debian and Ubuntu, a package Preview needs `python3-apt` on the server (Ubuntu Server includes it; an Apply installs it automatically).
 - An SSH account with suitable privileges, and a verified host key.
 
 ## Running from the command line
@@ -60,6 +65,7 @@ ansible-playbook -i inventory.lab.yml Cisco/01_health_report.yml --limit cisco_l
 ansible-playbook -i inventory.lab.yml Cisco/02_backup_running_config.yml --limit cisco_lab --ask-pass --ask-become-pass
 ansible-playbook -i inventory.lab.yml MikroTik/01_health_report.yml --limit mikrotik_lab --ask-pass
 ansible-playbook -i inventory.lab.yml MikroTik/02_export_config.yml --limit mikrotik_lab --ask-pass
+ansible-playbook -i inventory.lab.yml Linux/01_health_report.yml --limit linux_lab --ask-pass
 ```
 
 Reports and backups are written on the **controller** in a unique `artifacts/host_<name>_<random>/` folder (mode 0700, files 0600); change the location with `narsika_artifact_root`. Collectors refuse `--check`, because they must actually read the device.
@@ -73,7 +79,7 @@ cp examples/Cisco/03_ensure_vlan.vars.yml lab-vlan.yml
 ansible-playbook -i inventory.lab.yml Cisco/03_ensure_vlan.yml --limit cisco_lab -e @lab-vlan.yml --ask-pass --ask-become-pass
 ```
 
-With `narsika_apply: false` this validates and prints the plan. After reviewing it, set `narsika_apply: true` (a boolean) in your copy and run again. MikroTik works the same way, for example with `examples/MikroTik/04_dhcp_reservation.vars.yml`.
+With `narsika_apply: false` this validates and prints the plan. After reviewing it, set `narsika_apply: true` (a boolean) in your copy and run again. MikroTik works the same way, for example with `examples/MikroTik/04_dhcp_reservation.vars.yml`. Linux package and service Playbooks need `--ask-become-pass` for sudo, for example with `examples/Linux/03_ensure_package.vars.yml`.
 
 `--check` on changing Playbooks only validates variables and shows the plan; it is not a full device dry-run. The RouterOS command module does not really support check mode.
 
@@ -93,6 +99,10 @@ With `narsika_apply: false` this validates and prints the plan. After reviewing 
 | `dhcp_server`, `lease_address`, `lease_mac`, `lease_comment` | Existing DHCP server, reserved IPv4, MAC and comment |
 | `route_name`, `route_destination`, `route_gateway`, `route_distance` | Unique name, canonical IPv4 network, gateway and distance 1–254 |
 | `allow_default_route` | Required to add a `/0` route (default `false`) |
+| `refresh_package_index` | Linux: refresh the package index with sudo before listing updates (default `false`) |
+| `package_name`, `package_state` | Linux: one package name and `present`, `absent` or `latest` |
+| `service_name`, `service_state`, `service_enabled` | Linux: one systemd unit; `started`, `stopped`, `restarted` or `reloaded`; `true`, `false` or `null` to leave boot behaviour unchanged |
+| `allow_management_service_change` | Linux: allow stopping, restarting or disabling SSH and network units; only with console or out-of-band access (default `false`) |
 
 On RouterOS, missing resources are created and matching ones are left alone; conflicting resources are never overwritten, and an existing lease's comment is not rewritten on its own. Each apply writes a new snapshot on the controller, so a new local file does not mean the device changed.
 
@@ -102,10 +112,11 @@ On RouterOS, missing resources are created and matching ones are left alone; con
 - Cisco Playbooks manage only the listed fields; they do not change `shutdown`, voice VLAN, STP, port security or ACL attachment.
 - A MikroTik VLAN interface does not make end-to-end forwarding work by itself: tagging, the parent, the bridge VLAN table and upstream devices must already be right. DHCP reservations must match the real subnet and pool; a route is only useful if its gateway is reachable.
 - NTP/syslog Playbooks manage the configuration only; delivery depends on routing, ACLs and the remote services. `save_config` saves the whole running-config, including earlier unsaved changes.
+- Linux package and service changes save the previous package version or unit state on the controller, but are not rolled back automatically. Removing a package can also remove packages that depend on it, and `latest` installs whatever the server's repositories offer.
 
 ## Testing status
 
-All Playbooks pass `ansible-playbook --syntax-check` in CI with the pinned collections. Syntax checks do not replace running them against your own Cisco and RouterOS versions in a lab.
+All Playbooks pass `ansible-playbook --syntax-check` in CI with the pinned collections. The Linux health Playbook also runs in CI over the OpenSSH client against a loopback SSH server on the test machine, with a password and with a passphrase-protected key. Syntax checks do not replace running them against your own Cisco, RouterOS and Linux versions in a lab.
 
 ## References
 

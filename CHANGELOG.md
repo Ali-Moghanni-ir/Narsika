@@ -2,6 +2,17 @@
 
 Notable changes to Narsika. Dates are in UTC. Versions follow [semantic versioning](https://semver.org/); each version has a Git tag `vX.Y.Z` and a [GitHub release](https://github.com/Ali-Moghanni-ir/Narsika/releases) with a ZIP archive and its SHA-256 checksum. Entries before 0.9.0 are listed by date.
 
+## Unreleased
+
+### Added
+- **Linux servers** as a third platform. Health (CPU, memory, load, filesystems, failed systemd units, uptime, kernel and distribution), interfaces with link state and one-second SSH rates, read-only configuration snapshots as backups, discovery hints for Ubuntu, Debian and Raspbian banners, and identity verification. Reads run fixed POSIX shell scripts without sudo and trust only verified host keys.
+- Four Linux Playbooks: health report, pending package updates, ensure a package state, and manage a systemd service, with Preview/Apply and protection for SSH, network and core packages.
+- Linux Playbooks run over OpenSSH with strict host key checking against Narsika's `known_hosts` only. Private keys, including passphrase-protected ones, are loaded into an `ssh-agent` that exists for one run.
+
+### Changed
+- A platform registry and driver modules (`app/services/platforms/`) now decide what each device type supports. VLAN and Firewall requests for a platform without that capability are refused with `422 UNSUPPORTED` before any connection.
+- The interface reads platform names, vendors and capability filters from the server instead of hard-coded Cisco/MikroTik lists. The credential form explains that the enable password is the sudo password on Linux.
+
 ## 0.9.0 — 2026-10-19
 
 Second public release, and the first with a version number (still Public Beta). It includes every change since the 2026-09-12 Public Beta. The full list is in [CHANGELOG.md](https://github.com/Ali-Moghanni-ir/Narsika/blob/main/CHANGELOG.md).
