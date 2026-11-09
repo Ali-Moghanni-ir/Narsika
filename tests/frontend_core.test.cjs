@@ -88,3 +88,36 @@ test('a post-write reload does not reuse or lose to an older inventory read',asy
   requests[0].resolve({data:{devices:[{id:1,name:'Stale device'}]}});await old;
   assert.equal(D.state.devices[0].id,2);assert.equal(events.length,1);
 });
+
+const REGISTRY=[{id:'cisco',label:'Cisco IOS / IOS XE',vendor:'Cisco',capabilities:['backup','firewall','health','interfaces','playbooks','vlan']},
+  {id:'mikrotik',label:'MikroTik RouterOS',vendor:'MikroTik',capabilities:['backup','firewall','health','interfaces','playbooks']},
+  {id:'linux',label:'Linux server',vendor:'Linux',capabilities:['backup','health','interfaces','playbooks']}];
+
+test('device vendors come from the server platform registry',()=>{
+  const bootstrap={platforms:REGISTRY,devices:[{id:1,platform:'linux',ip_address:'10.0.0.9',ssh_port:22},{id:2,platform:'mikrotik',ip_address:'10.0.0.1',ssh_port:22},{id:3,platform:'future-os',ip_address:'10.0.0.2',ssh_port:22}]};
+  const document={body:{dataset:{page:'inventory'}},getElementById(){return {textContent:JSON.stringify(bootstrap)};}};
+  const window={};
+  vm.runInContext(fs.readFileSync('app/static/js/data.js','utf8'),vm.createContext({window,document,CustomEvent:class {}}));
+  // Spread copies the array out of the VM realm so deepEqual compares values only.
+  const vendors=[...window.NarsikaData.state.devices.map(d=>d.vendor)];
+  // An unknown platform keeps its own ID instead of being shown as another vendor.
+  assert.deepEqual(vendors,['Linux','MikroTik','future-os']);
+  assert.equal(window.NarsikaData.state.platforms.length,3);
+});
+
+test('platform helpers follow registry capabilities',()=>{
+  const {N,state}=runtime();
+  state.platforms=REGISTRY;
+  state.devices=[{id:1,name:'core-sw',ip:'10.0.0.1',platform:'cisco',vendor:'Cisco'},{id:2,name:'web-01',ip:'10.0.0.9',platform:'linux',vendor:'Linux'}];
+  assert.equal(N.supports(state.devices[1],'vlan'),false);
+  assert.equal(N.supports(state.devices[1],'health'),true);
+  assert.equal(N.supports({platform:'unknown'},'health'),false);
+  assert.ok(N.options(null,'vlan').includes('core-sw')&&!N.options(null,'vlan').includes('web-01'));
+  assert.ok(N.options('Linux').includes('web-01')&&!N.options('Linux').includes('core-sw'));
+  const choices=N.platformOptions('linux');
+  assert.ok(choices.includes('<option value="linux" selected>Linux server</option>'));
+  assert.equal((choices.match(/<option/g)||[]).length,3);
+  assert.ok(!N.platformOptions(null,'firewall').includes('linux'));
+  assert.equal(N.vendorOptions('Any'),'<option>Any</option><option>Cisco</option><option>MikroTik</option><option>Linux</option>');
+  assert.ok(N.badge('linux').includes('class="badge linux"'));
+});
