@@ -15,11 +15,11 @@ from tools.ansible_environment import environment, executable as ansible_executa
 def main():
     executable=ansible_executable('ansible-playbook')
     if not executable:raise SystemExit('Install requirements and Ansible collections first.')
-    paths=sorted((ROOT/'Playbooks/Cisco').glob('*.yml'))+sorted((ROOT/'Playbooks/MikroTik').glob('*.yml'))+sorted((ROOT/'Playbooks/Original').glob('*.yml'))
+    paths=[path for folder in ('Cisco','MikroTik','Linux','Original') for path in sorted((ROOT/'Playbooks'/folder).glob('*.yml'))]
     paths+=[ROOT/'app/services/firewall_playbooks'/name for name in ('cisco.yml','mikrotik.yml')]
     with tempfile.TemporaryDirectory() as directory:
         inventory=Path(directory)/'inventory.yml'
-        inventory.write_text('all:\n  children:\n    cisco:\n      hosts:\n        cisco_test:\n          ansible_host: 192.0.2.1\n          ansible_connection: ansible.netcommon.network_cli\n          ansible_network_os: cisco.ios.ios\n    mikrotik:\n      hosts:\n        mikrotik_test:\n          ansible_host: 192.0.2.2\n          ansible_connection: ansible.netcommon.network_cli\n          ansible_network_os: community.routeros.routeros\n    cisco_routers:\n      hosts:\n        cisco_test: {}\n')
+        inventory.write_text('all:\n  children:\n    cisco:\n      hosts:\n        cisco_test:\n          ansible_host: 192.0.2.1\n          ansible_connection: ansible.netcommon.network_cli\n          ansible_network_os: cisco.ios.ios\n    mikrotik:\n      hosts:\n        mikrotik_test:\n          ansible_host: 192.0.2.2\n          ansible_connection: ansible.netcommon.network_cli\n          ansible_network_os: community.routeros.routeros\n    cisco_routers:\n      hosts:\n        cisco_test: {}\n    linux:\n      hosts:\n        linux_test:\n          ansible_host: 192.0.2.3\n          ansible_connection: ssh\n')
         def check(path):
             env=environment(state=Path(directory)/('state-'+path.parent.name+'-'+path.stem))
             result=subprocess.run([executable,'--syntax-check','-i',str(inventory),str(path)],capture_output=True,text=True,timeout=60,cwd=directory,env=env)

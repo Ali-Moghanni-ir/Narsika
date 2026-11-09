@@ -45,6 +45,8 @@ PLATFORMS: dict[str, Platform] = {
                       frozenset({HEALTH, INTERFACES, BACKUP, PLAYBOOKS, VLAN, FIREWALL})),
     'mikrotik': Platform('mikrotik', 'MikroTik RouterOS', 'MikroTik', 'mikrotik_routeros', 'mikrotik',
                          frozenset({HEALTH, INTERFACES, BACKUP, PLAYBOOKS, FIREWALL})),
+    'linux': Platform('linux', 'Linux server', 'Linux', 'linux', 'linux',
+                      frozenset({HEALTH, INTERFACES, BACKUP, PLAYBOOKS})),
 }
 
 CAPABILITY_NAMES = {HEALTH: 'Health monitoring', INTERFACES: 'Interface monitoring', BACKUP: 'Configuration backup',

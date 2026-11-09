@@ -1,0 +1,115 @@
+---
+- name: Narsika | Linux pending package updates
+  hosts: '{{ narsika_targets | default("linux") }}'
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    narsika_artifact_root: '{{ playbook_dir }}/../artifacts'
+    refresh_package_index: false
+  pre_tasks:
+  - name: Validate platform and SSH connection
+    ansible.builtin.assert:
+      that:
+      - ansible_connection in ["ssh", "ansible.builtin.ssh"]
+      fail_msg: Use the linux inventory group and the ssh connection.
+  - name: Read-only report requires normal mode
+    ansible.builtin.assert:
+      that:
+      - not ansible_check_mode
+      fail_msg: Do not use --check for this report. It reads the server and writes a local artifact.
+  - name: Require a boolean refresh flag
+    ansible.builtin.assert:
+      that:
+      - refresh_package_index is boolean
+      fail_msg: Set refresh_package_index to YAML/JSON true or false, not a string.
+  tasks:
+  - name: Identify the distribution and package manager
+    ansible.builtin.setup:
+      gather_subset:
+      - '!all'
+  - name: Require a supported package manager
+    ansible.builtin.assert:
+      that:
+      - ansible_facts.system == "Linux"
+      - ansible_facts.pkg_mgr in ["apt", "dnf", "dnf5", "yum"]
+      fail_msg: This Playbook supports Linux servers with apt, dnf or yum.
+  - name: Refresh the package index with sudo (installs nothing)
+    when: refresh_package_index
+    ansible.builtin.command:
+      argv: '{{ ["apt-get", "-q", "update"] if ansible_facts.pkg_mgr == "apt" else [ansible_facts.pkg_mgr, "-q", "makecache"] }}'
+    become: true
+    environment:
+      LC_ALL: C
+    changed_when: false
+  - name: List pending updates with apt
+    when: ansible_facts.pkg_mgr == "apt"
+    ansible.builtin.command:
+      argv: [apt, list, --upgradable]
+    environment:
+      LC_ALL: C
+    register: _apt
+    changed_when: false
+  - name: List pending updates with dnf or yum
+    when: ansible_facts.pkg_mgr != "apt"
+    ansible.builtin.command:
+      argv: ['{{ ansible_facts.pkg_mgr }}', -q, check-update]
+    environment:
+      LC_ALL: C
+    register: _rpm
+    changed_when: false
+    # check-update exits with 100 when updates are available.
+    failed_when: _rpm.rc not in [0, 100]
+  - name: Summarise pending updates
+    ansible.builtin.set_fact:
+      _updates: >-
+        {{ (_apt.stdout_lines | default([]) | select("search", "[[]upgradable from:") | list)
+           if ansible_facts.pkg_mgr == "apt" else
+           (_rpm.stdout_lines | default([]) | select("match", "^[^ ]+[.][^ ]+[ \t]+[^ ]+[ \t]+[^ ]+[ \t]*$") | list) }}
+  - name: Create restricted artifact root
+    ansible.builtin.file:
+      path: '{{ narsika_artifact_root }}'
+      state: directory
+      mode: '0700'
+    delegate_to: localhost
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_become: false
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  - name: Allocate a unique directory for this host and run
+    ansible.builtin.tempfile:
+      state: directory
+      path: '{{ narsika_artifact_root }}'
+      prefix: host_{{ inventory_hostname | regex_replace("[^A-Za-z0-9_.-]", "_") }}_
+    register: _artifact
+    delegate_to: localhost
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_become: false
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  - name: Write a restricted update report
+    ansible.builtin.copy:
+      dest: '{{ _artifact.path }}/package-updates.json'
+      mode: '0600'
+      content: |
+        {{ {"host": inventory_hostname,
+            "distribution": (ansible_facts.distribution | default("")) ~ " " ~ (ansible_facts.distribution_version | default("")),
+            "package_manager": ansible_facts.pkg_mgr,
+            "index_refreshed": refresh_package_index,
+            "note": "Based on the package index already on the server unless index_refreshed is true.",
+            "pending_count": _updates | length,
+            "security_count": _updates | select("search", "-security") | list | length if ansible_facts.pkg_mgr == "apt" else none,
+            "pending": _updates} | to_nice_json }}
+    delegate_to: localhost
+    become: false
+    vars:
+      ansible_connection: local
+      ansible_become: false
+      ansible_python_interpreter: '{{ ansible_playbook_python }}'
+  - name: Pending updates
+    ansible.builtin.debug:
+      msg:
+        pending: '{{ _updates | length }}'
+        report: '{{ _artifact.path }}/package-updates.json'

@@ -226,8 +226,8 @@ def test_final_readme_and_brand_assets_are_packaged(admin, client):
         assert raw[:8] == b'\x89PNG\r\n\x1a\n'
         assert struct.unpack('>II', raw[16:24]) == expected
         assert raw[25] == 6  # PNG RGBA preserves a real alpha channel.
-    for name in ('Cisco', 'MikroTik', 'Original'):
-        assert len([p for p in paths if p.startswith('Playbooks/' + name + '/') and p.endswith('.yml')]) == (6 if name == 'Original' else 5)
+    for name, count in (('Cisco', 5), ('MikroTik', 5), ('Linux', 4), ('Original', 6)):
+        assert len([p for p in paths if p.startswith('Playbooks/' + name + '/') and p.endswith('.yml')]) == count
     for path in paths:
         assert not any(part in ('__pycache__', '.venv', 'instance', '.git') for part in Path(path).parts)
         assert not path.endswith(('.pyc', '.db', '.db-wal', '.db-shm', '.sqlite3'))

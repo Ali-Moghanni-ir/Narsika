@@ -1,0 +1,153 @@
+---
+- name: Narsika | Manage a systemd service
+  hosts: '{{ narsika_targets | default("linux") }}'
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    narsika_apply: false
+    narsika_artifact_root: '{{ playbook_dir }}/../artifacts'
+    service_name: null
+    service_state: started
+    service_enabled: null
+    allow_management_service_change: false
+    # Units whose stop, restart or disable can cut the SSH path Narsika uses.
+    _management_units: [ssh, sshd, networking, network, NetworkManager, systemd-networkd, systemd-resolved]
+    _unit: '{{ service_name | regex_replace("[.](service|socket)$", "") }}'
+  pre_tasks:
+  - name: Validate platform and SSH connection
+    ansible.builtin.assert:
+      that:
+      - ansible_connection in ["ssh", "ansible.builtin.ssh"]
+      fail_msg: Use the linux inventory group and the ssh connection.
+  - name: Require boolean flags
+    ansible.builtin.assert:
+      that:
+      - narsika_apply is boolean
+      - allow_management_service_change is boolean
+      - service_enabled is none or service_enabled is boolean
+      fail_msg: Set narsika_apply, allow_management_service_change and service_enabled to true or false (service_enabled may be null).
+  - name: Validate service input
+    ansible.builtin.assert:
+      that:
+      - service_name is string
+      - service_name is match("^[A-Za-z0-9][A-Za-z0-9@._:-]{0,127}$")
+      - service_state in ["started", "stopped", "restarted", "reloaded"]
+      fail_msg: Give one systemd unit name and service_state started, stopped, restarted or reloaded.
+  - name: Protect the management connection
+    ansible.builtin.assert:
+      that:
+      - allow_management_service_change or _unit not in _management_units
+        or (service_state in ["started", "reloaded"] and service_enabled is not false)
+      fail_msg: Stopping, restarting or disabling {{ service_name }} can cut SSH access. Set allow_management_service_change to true only with console or out-of-band access.
+  tasks:
+  - name: Identify the service manager
+    ansible.builtin.setup:
+      gather_subset:
+      - '!all'
+  - name: Require systemd
+    ansible.builtin.assert:
+      that:
+      - ansible_facts.system == "Linux"
+      - ansible_facts.service_mgr == "systemd"
+      fail_msg: This Playbook supports Linux servers that run systemd.
+  - name: Read the unit state before any change
+    ansible.builtin.command:
+      argv: [systemctl, show, --no-pager, --property=LoadState, --property=ActiveState, --property=SubState,
+             --property=UnitFileState, --, '{{ service_name }}']
+    environment:
+      LC_ALL: C
+    register: _before
+    changed_when: false
+  - name: Require an existing unit
+    ansible.builtin.assert:
+      that:
+      - _before.stdout is search("(?m)^LoadState=loaded$")
+      fail_msg: systemd has no loaded unit named {{ service_name }}.
+  - name: Planned change
+    ansible.builtin.debug:
+      msg:
+        unit: '{{ service_name }}'
+        state_now: '{{ _before.stdout_lines }}'
+        requested_state: '{{ service_state }}'
+        requested_enabled: '{{ "unchanged" if service_enabled is none else service_enabled }}'
+  - name: Execution mode
+    ansible.builtin.debug:
+      msg:
+        apply: '{{ narsika_apply }}'
+        check_mode: '{{ ansible_check_mode }}'
+        note: Preview by default. systemd changes the unit only with narsika_apply=true in normal mode.
+  - name: Preview with systemd (check mode, sudo)
+    when: not (narsika_apply | bool) or ansible_check_mode
+    ansible.builtin.systemd_service:
+      name: '{{ service_name }}'
+      state: '{{ service_state }}'
+      enabled: '{{ omit if service_enabled is none else service_enabled }}'
+    become: true
+    check_mode: true
+    register: _preview
+  - name: Preview result
+    when: not (narsika_apply | bool) or ansible_check_mode
+    ansible.builtin.debug:
+      msg: '{{ "The unit would change." if _preview.changed else "The unit is already in the requested state." }}'
+  - name: Apply the reviewed change to one host
+    when: narsika_apply | bool and not ansible_check_mode
+    block:
+    - name: Create restricted artifact root
+      ansible.builtin.file:
+        path: '{{ narsika_artifact_root }}'
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Allocate a unique directory for this host and run
+      ansible.builtin.tempfile:
+        state: directory
+        path: '{{ narsika_artifact_root }}'
+        prefix: host_{{ inventory_hostname | regex_replace("[^A-Za-z0-9_.-]", "_") }}_
+      register: _artifact
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Record the unit state before the change
+      ansible.builtin.copy:
+        dest: '{{ _artifact.path }}/service-before.json'
+        mode: '0600'
+        content: |
+          {{ {"host": inventory_hostname, "unit": service_name, "requested_state": service_state,
+              "requested_enabled": service_enabled, "state_before": _before.stdout_lines} | to_nice_json }}
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Change the unit
+      ansible.builtin.systemd_service:
+        name: '{{ service_name }}'
+        state: '{{ service_state }}'
+        enabled: '{{ omit if service_enabled is none else service_enabled }}'
+      become: true
+    - name: Read the unit state after the change
+      ansible.builtin.command:
+        argv: [systemctl, show, --no-pager, --property=ActiveState, --property=UnitFileState, --, '{{ service_name }}']
+      environment:
+        LC_ALL: C
+      register: _after
+      changed_when: false
+    - name: Verify the unit state
+      ansible.builtin.assert:
+        that:
+        - _after.stdout is search("(?m)^ActiveState=" ~ ("inactive" if service_state == "stopped" else "active") ~ "$")
+        - service_enabled is none or _after.stdout is search("(?m)^UnitFileState=" ~ ("enabled" if service_enabled else "disabled") ~ "$")
+        fail_msg: systemd finished, but {{ service_name }} is not in the requested state.
+    - name: Before-change record
+      ansible.builtin.debug:
+        msg: '{{ _artifact.path }}/service-before.json'

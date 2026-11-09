@@ -42,6 +42,11 @@ def test_device_error_lines_still_fail(output):
     ('ssh-2.0-mikrotik', 'mikrotik'),
     ('SSH-2.0-Cisco-1.25', 'cisco'),
     ('SSH-2.0-OpenSSH_9.6', 'unknown'),
+    ('SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5', 'linux'),
+    ('SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3', 'linux'),
+    ('SSH-2.0-OpenSSH_8.4p1 Raspbian-5+deb11u3', 'linux'),
+    # BSD hosts also run OpenSSH; only distributions that name themselves hint Linux.
+    ('SSH-2.0-OpenSSH_9.6 FreeBSD-20240104', 'unknown'),
 ])
 def test_discovery_recognises_routeros_banner(banner, expected):
     assert vendor_hint(banner) == expected
