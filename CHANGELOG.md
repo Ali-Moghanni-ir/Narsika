@@ -13,6 +13,12 @@ Notable changes to Narsika. Dates are in UTC. Versions follow [semantic versioni
 - A platform registry and driver modules (`app/services/platforms/`) now decide what each device type supports. VLAN and Firewall requests for a platform without that capability are refused with `422 UNSUPPORTED` before any connection.
 - The interface reads platform names, vendors and capability filters from the server instead of hard-coded Cisco/MikroTik lists. The credential form explains that the enable password is the sudo password on Linux.
 
+### Fixed
+- Docker setup behind a proxy: the Windows and Linux launchers pass `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` (on Windows also the system proxy) to the image build only. A proxy on `127.0.0.1` is reached through Docker Desktop's built-in proxy on Windows and through the host network on Linux. Nothing is stored in the image or the running container.
+- Before the long build, a network check from the pinned base image stops setup within seconds and names the host it cannot reach (package index, package files, Ansible Galaxy or Debian).
+- Failed Python package installs now tell DNS, proxy, TLS and connection problems apart from version-resolution errors, and the launchers repeat that one-line cause in their final error.
+- Release packaging fails when a shipped file is missing from `MANIFEST.sha256`, and the Windows launcher warns about files left over from an older version in the same folder.
+
 ## 0.9.0 — 2026-10-19
 
 Second public release, and the first with a version number (still Public Beta). It includes every change since the 2026-09-12 Public Beta. The full list is in [CHANGELOG.md](https://github.com/Ali-Moghanni-ir/Narsika/blob/main/CHANGELOG.md).

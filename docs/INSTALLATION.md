@@ -193,6 +193,68 @@ NARSIKA_PIP_INDEX_URL=https://mirror.example.org/simple/ bash run_linux.sh --doc
 
 A plain `docker compose build` does not pick these up; use the launcher or `docker build --build-arg NARSIKA_PIP_INDEX_URL=... -t narsika:local .`. Don't clear the build cache between attempts. When you install a new version, run the launcher again so the image is rebuilt.
 
+## Proxy, VPN and filtered networks
+
+The Docker image build downloads from four places: the Python package index (`pypi.org`) and its file host (`files.pythonhosted.org`), Ansible Galaxy (`galaxy.ansible.com`) and Debian (`deb.debian.org`). Before the long build, the Docker launchers run a short network check from a temporary container of the pinned base image. If a host cannot be reached, setup stops within seconds and names it, for example:
+
+```text
+Narsika setup stopped: Cannot reach files.pythonhosted.org (Python package files): DNS name resolution failed.
+```
+
+If the build itself fails later, the launcher repeats the one-line cause reported by the package or collection step instead of only "read the error above".
+
+### How the launchers use a proxy
+
+When `HTTPS_PROXY`, `HTTP_PROXY` or `NO_PROXY` are set — or, on Windows, when the Windows system proxy is enabled — the launcher passes them to the network check and the image build **only**, as Docker's predefined proxy build arguments. They are not stored in the image configuration or history, and they reach neither `.env` nor the running container. To confirm:
+
+```bash
+docker image inspect narsika:local --format '{{json .Config.Env}}'
+```
+
+A proxy on `127.0.0.1` or `localhost` belongs to your computer; inside a build container, `127.0.0.1` is the container itself:
+
+- **Windows (Docker Desktop):** the launcher replaces a local proxy with Docker Desktop's built-in proxy, `http://http.docker.internal:3128`, which forwards to the proxy configured for Windows (Docker Desktop's default). To use another address, set `NARSIKA_BUILD_PROXY`, for example `http://host.docker.internal:10808` when your proxy also listens on non-loopback interfaces.
+- **Linux:** the network check and the build run with `--network host`, so they can reach a proxy on the host.
+
+SOCKS-only proxy settings are not passed to the build. Use the HTTP (or "mixed") port of your proxy client, such as v2rayN/xray, or a VPN.
+
+Windows (PowerShell, in the project folder):
+
+```powershell
+$env:HTTPS_PROXY = 'http://127.0.0.1:10808'
+$env:HTTP_PROXY = 'http://127.0.0.1:10808'
+.\run_windows.bat
+```
+
+Linux:
+
+```bash
+HTTPS_PROXY=http://127.0.0.1:8080 HTTP_PROXY=http://127.0.0.1:8080 bash run_linux.sh --docker
+```
+
+### Other options
+
+- **A VPN in TUN mode** that also handles DNS for Docker Desktop's WSL2 virtual machine needs no proxy settings at all.
+- **Docker Desktop proxy settings** (Settings → Resources → Proxies) control how Docker Desktop itself pulls images.
+- **A Docker client proxy configuration** in `~/.docker/config.json` (on Windows `%USERPROFILE%\.docker\config.json`) makes Docker add the proxy variables to every build *and every container it starts*, including the running Narsika container:
+
+  ```json
+  {
+    "proxies": {
+      "default": {
+        "httpProxy": "http://http.docker.internal:3128",
+        "httpsProxy": "http://http.docker.internal:3128",
+        "noProxy": "localhost,127.0.0.1,.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+      }
+    }
+  }
+  ```
+
+  Keep `localhost` and `127.0.0.1` in `noProxy` (the container's own health check uses them) and add every network that contains your devices, so traffic meant for your network is never sent to the proxy.
+- **`NARSIKA_PIP_INDEX_URL`** with a trusted HTTPS mirror (see [Package downloads and mirrors](#package-downloads-and-mirrors)) fixes only the Python packages step. The Ansible collections still come from `galaxy.ansible.com` and the Debian packages from `deb.debian.org`, so those hosts still need a working path.
+
+TLS verification, checksums and version pins stay enforced on every path. A proxy that intercepts HTTPS is reported as a certificate error; Narsika does not disable verification to work around it.
+
 ## Troubleshooting
 
 Start with the built-in diagnostic on native installs. It checks the release pointer, configuration and key permissions, database, service state, Python packages, Ansible and its collections, and local HTTP health. It prints no secrets and changes nothing.

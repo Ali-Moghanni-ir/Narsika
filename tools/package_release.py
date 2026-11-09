@@ -25,6 +25,24 @@ def release_files(root=ROOT):
     return paths
 
 
+def check_archive(path: Path) -> None:
+    """Fail unless every shipped file is listed in the manifest with its checksum, and nothing else is."""
+    with zipfile.ZipFile(path) as archive:
+        if archive.testzip():raise ValueError('ZIP integrity check failed.')
+        listed=set()
+        for line in archive.read('narsika/MANIFEST.sha256').decode().splitlines():
+            expected,name=line.split('  ',1)
+            listed.add('narsika/'+name)
+            try:
+                content=archive.read('narsika/'+name)
+            except KeyError:
+                raise ValueError('The manifest lists a file the archive does not contain: '+name) from None
+            if hashlib.sha256(content).hexdigest()!=expected:raise ValueError('Manifest mismatch: '+name)
+        shipped={name for name in archive.namelist() if not name.endswith('/')}-{'narsika/MANIFEST.sha256'}
+        unlisted=sorted(shipped-listed)
+        if unlisted:raise ValueError('Shipped files are missing from MANIFEST.sha256: '+', '.join(unlisted))
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('destination',type=Path)
@@ -35,11 +53,7 @@ def main():
     args.destination.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(args.destination,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as archive:
         for path in files+[manifest]:archive.write(path,'narsika/'+path.relative_to(ROOT).as_posix())
-    with zipfile.ZipFile(args.destination) as archive:
-        if archive.testzip():raise ValueError('ZIP integrity check failed.')
-        for line in archive.read('narsika/MANIFEST.sha256').decode().splitlines():
-            expected,name=line.split('  ',1)
-            if hashlib.sha256(archive.read('narsika/'+name)).hexdigest()!=expected:raise ValueError('Manifest mismatch.')
+    check_archive(args.destination)
     print(f'PASS {len(files)+1} files; SHA256 {hashlib.sha256(args.destination.read_bytes()).hexdigest()}')
 
 if __name__=='__main__':main()
