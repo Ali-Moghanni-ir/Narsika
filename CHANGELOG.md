@@ -5,6 +5,7 @@ Notable changes to Narsika. Dates are in UTC. Versions follow [semantic versioni
 ## Unreleased
 
 ### Added
+- **Playbook forms.** Every included Playbook that takes input now shows a form (labels, choices, examples) instead of a JSON editor: choose the device, fill the fields, Preview or Apply. The server checks types, ranges, choices and formats before a run is queued and drops unknown keys; the three Original playbooks, which have no checks of their own, get strict patterns. Playbooks without input say so; uploaded Playbooks keep the JSON editor.
 - **Linux servers** as a third platform. Health (CPU, memory, load, filesystems, failed systemd units, uptime, kernel and distribution), interfaces with link state and one-second SSH rates, read-only configuration snapshots as backups, discovery hints for Ubuntu, Debian and Raspbian banners, and identity verification. Reads run fixed POSIX shell scripts without sudo and trust only verified host keys.
 - Four Linux Playbooks: health report, pending package updates, ensure a package state, and manage a systemd service, with Preview/Apply and protection for SSH, network and core packages.
 - Linux Playbooks run over OpenSSH with strict host key checking against Narsika's `known_hosts` only. Private keys, including passphrase-protected ones, are loaded into an `ssh-agent` that exists for one run.

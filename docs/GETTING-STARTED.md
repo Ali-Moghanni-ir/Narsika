@@ -61,7 +61,7 @@ On a **Linux server**, a backup is a read-only text snapshot: system identity, l
 
 ## 8. Run operations
 
-- **Playbooks** — pick a Playbook for the device's platform, review its variables (JSON) and choose **Preview** (validate and show the plan, no configuration change) or **Apply configuration**. Runs are queued, shown live, and kept in **Recent runs** with their artifacts. See the [Playbook library](../Playbooks/README.md).
+- **Playbooks** — pick a Playbook for the device's platform, fill in its form (included Playbooks; uploaded ones use a JSON variables editor) and choose **Preview** (validate and show the plan, no configuration change) or **Apply configuration**. Runs are queued, shown live, and kept in **Recent runs** with their artifacts. See the [Playbook library](../Playbooks/README.md).
 - **VLAN management** (Cisco IOS) — view VLANs and create, rename or remove one; saving to startup-config is optional.
 - **Linux Playbooks** — a health report, a pending-updates report, package install/upgrade/remove and systemd service control, each with Preview and Apply. See the [Playbook library](../Playbooks/README.md).
 - **Firewall** — reviewed Allow/Block rules on RouterOS and Cisco, including new Cisco ACLs. See [Firewall](FIREWALL.md).

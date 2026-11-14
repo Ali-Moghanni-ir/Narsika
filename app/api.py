@@ -285,7 +285,7 @@ def key_response(ip,port):
 @api.route('/playbooks',methods=['GET','POST'])
 @require()
 def playbooks():
-    if request.method=='GET':return ok({'items':[r.public() for r in Playbook.query.filter_by(active=True).order_by(Playbook.vendor,Playbook.title)]})
+    if request.method=='GET':return ok({'items':[{**r.public(),'fields':catalog.FORMS.get(r.name) if r.builtin else None} for r in Playbook.query.filter_by(active=True).order_by(Playbook.vendor,Playbook.title)]})
     return upload_playbook()
 
 @require('admin')
@@ -354,6 +354,7 @@ def prepare_run(kind, device, data, actor_role=None):
         variables=data.get('variables',{})
         if not isinstance(variables,dict):fail('Playbook variables must be a JSON object.')
         if any(k.startswith('ansible_') or k in ('narsika_targets','narsika_artifact_root') for k in variables):fail('Connection and artifact variables are managed by the server.')
+        variables=catalog.form_variables(book,variables)
         if book.name in LEGACY_ACL_PLAYBOOKS:
             if actor_role != 'ADMIN':
                 fail('Legacy access-list playbooks can be run only by an administrator and cannot be '

@@ -6,7 +6,7 @@
 
 Open **Schedules → New task**:
 
-1. **Operation** — name the task and choose **Backup** or **Playbook**. For a Playbook, review the active version and its JSON variables. Variables such as `narsika_apply` decide whether the Playbook previews or applies; the scheduler does not change them.
+1. **Operation** — name the task and choose **Backup** or **Playbook**. For a Playbook, review the active version and its JSON variables. For included Playbooks the server checks these variables against the Playbook's form fields (types, ranges, choices and formats) and drops unknown keys, as it does for a manual run. Variables such as `narsika_apply` decide whether the Playbook previews or applies; the scheduler does not change them.
 2. **Targets** — select up to 32 devices. Only devices of a compatible platform are listed; search by name, IP or group. Targets are fixed: a device later added to a group is not added to the task.
 3. **Timing** — choose the schedule type and an explicit time zone, for example `Asia/Tehran` or `UTC`. You can save the task paused.
 4. **Review** — check the operation, variables, target IPs, time zone and the next three run times, then confirm that future runs may change device configuration without asking again.
