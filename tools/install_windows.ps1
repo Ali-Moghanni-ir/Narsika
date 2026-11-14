@@ -97,9 +97,35 @@ function Get-ProxyArguments {
     return $arguments
 }
 
+function Get-ConfigureArguments {
+    # Both steps run as root: configure.py writes .env as root with mode 0600, and Docker Desktop
+    # keeps that owner and mode on the bind mount, so a check as the image user cannot read it.
+    param([string]$Project, [switch]$Check)
+    $mount = "type=bind,source=$Project,target=/setup"
+    $arguments = @('run', '--rm')
+    if ($Check) { $mount += ',readonly' } elseif (-not [Console]::IsInputRedirected) { $arguments += '-it' }
+    $arguments += @('--network', 'none', '--user', '0:0', '--mount', $mount, '--entrypoint', 'python', 'narsika:local', '/setup/configure.py')
+    if ($Check) { $arguments += '--check' }
+    return $arguments
+}
+
+function Test-ExistingData {
+    # True when the data volume already holds a database, which only the old .env keys can decrypt.
+    $project = if ($env:COMPOSE_PROJECT_NAME) { $env:COMPOSE_PROJECT_NAME } else { 'narsika' }
+    $volume = $project.ToLowerInvariant() + '_narsika-data'
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $script:Docker volume inspect $volume *> $null
+        if ($LASTEXITCODE -ne 0) { return $false }
+        & $script:Docker run --rm --network none --mount "type=volume,source=$volume,target=/data,readonly" --entrypoint test narsika:local -e /data/narsika.db *> $null
+        return $LASTEXITCODE -eq 0
+    } finally { $ErrorActionPreference = $oldPreference }
+}
+
 function Get-BaseImage {
     param([string]$Project)
-    $match = Select-String -Path (Join-Path $Project 'Dockerfile') -Pattern '^FROM\s+(\S+)' | Select-Object -First 1
+    $match = Select-String -LiteralPath (Join-Path $Project 'Dockerfile') -Pattern '^FROM\s+(\S+)' | Select-Object -First 1
     if (-not $match) { throw 'The Dockerfile has no FROM line. Extract the release ZIP again.' }
     return $match.Matches[0].Groups[1].Value
 }
@@ -126,15 +152,15 @@ function Show-StaleFiles {
     # Files a release does not list were usually left by an older version extracted into the same folder.
     param([string]$Project)
     $manifest = Join-Path $Project 'MANIFEST.sha256'
-    if (-not (Test-Path $manifest)) { return }
+    if (-not (Test-Path -LiteralPath $manifest)) { return }
     $listed = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($line in Get-Content -Path $manifest) {
+    foreach ($line in Get-Content -LiteralPath $manifest) {
         $parts = $line -split '  ', 2
         if ($parts.Count -eq 2) { [void]$listed.Add($parts[1]) }
     }
-    $root = (Resolve-Path $Project).Path.TrimEnd('\', '/')
+    $root = (Resolve-Path -LiteralPath $Project).Path.TrimEnd('\', '/')
     $stale = @()
-    foreach ($file in Get-ChildItem -Path $Project -File -Recurse -ErrorAction SilentlyContinue) {
+    foreach ($file in Get-ChildItem -LiteralPath $Project -File -Recurse -ErrorAction SilentlyContinue) {
         # The manifest uses forward slashes.
         $relative = $file.FullName.Substring($root.Length + 1).Replace('\', '/')
         if ($relative -in @('.env', 'MANIFEST.sha256') -or $relative.StartsWith('instance/') -or $relative.Contains('__pycache__')) { continue }
@@ -254,16 +280,15 @@ function Start-Narsika {
             if ($LASTEXITCODE -ne 0) { throw 'Complete Ubuntu installation, restart if requested, and rerun with -WSL.' }
             throw 'Create your Ubuntu username/password in its first-start window, then rerun run_windows.bat -WSL.'
         }
-        $linuxPath = (& $wslCommand -d $ubuntuDistro -- wslpath -a $project | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0 -or -not $linuxPath.StartsWith('/')) { throw 'Unable to locate this extracted project inside Ubuntu.' }
-        & $wslCommand -d $ubuntuDistro --cd $linuxPath -- bash run_linux.sh
-        if ($LASTEXITCODE -ne 0) { throw 'Ubuntu setup stopped. Read its error above. WSL must run systemd.' }
+        # --cd takes the Windows path directly; a wslpath round trip garbles non-ASCII folder names.
+        & $wslCommand -d $ubuntuDistro --cd $project -- bash run_linux.sh
+        if ($LASTEXITCODE -ne 0) { throw "Ubuntu setup stopped (exit $LASTEXITCODE). Read its error above." }
         Write-Host 'WSL installation completed. For this PC use http://localhost:8000 (or your selected port).'
         Write-Host 'LAN access to WSL requires separate Windows forwarding/mirrored networking and Windows firewall configuration.'
         return
     }
     if ($project.Contains(',')) { throw 'Extract the ZIP to a folder without commas, for example C:\Narsika.' }
-    Push-Location $project
+    Push-Location -LiteralPath $project
     try {
         $script:Docker = Find-Docker
         if (-not $script:Docker -or (Get-EngineType) -ne 'linux') { Install-WSL }
@@ -275,7 +300,8 @@ function Start-Narsika {
         $proxy = Get-BuildProxy
         if ($proxy) { Write-Host ('Using ' + (Get-ProxyLabel $proxy) + ' for the network check and the image build only.') }
         Test-BuildNetwork -Project $project -Proxy $proxy
-        $buildArguments = @('build', '--progress=plain')
+        # No provenance attestation: it would record the build arguments, including a proxy URL.
+        $buildArguments = @('build', '--progress=plain', '--provenance=false')
         foreach ($setting in @('NARSIKA_PIP_INDEX_URL', 'NARSIKA_PIP_TIMEOUT', 'NARSIKA_PIP_RETRIES')) {
             $value = [Environment]::GetEnvironmentVariable($setting)
             if ($value) { $buildArguments += @('--build-arg', "$setting=$value") }
@@ -285,11 +311,11 @@ function Start-Narsika {
         Write-Host 'Building with cached dependencies. First setup still downloads the base image, packages and Ansible collections.'
         Write-Host 'For later starts use docker compose up -d --no-build; setup is not required on every launch.'
         Invoke-Docker -Stream -Arguments ($buildArguments + @('-t', 'narsika:local', '.'))
-        $terminal = @()
-        if (-not [Console]::IsInputRedirected) { $terminal = @('-it') }
-        $configuration = @('run', '--rm') + $terminal + @('--network', 'none', '--user', '0:0', '--mount', "type=bind,source=$project,target=/setup", '--entrypoint', 'python', 'narsika:local', '/setup/configure.py')
-        Invoke-Docker -Arguments $configuration
-        Invoke-Docker -Arguments @('run', '--rm', '--network', 'none', '--mount', "type=bind,source=$project,target=/setup,readonly", '--entrypoint', 'python', 'narsika:local', '/setup/configure.py', '--check')
+        if (-not (Test-Path -LiteralPath (Join-Path $project '.env')) -and (Test-ExistingData)) {
+            throw 'An existing Narsika data volume was found, but this folder has no .env. Copy .env from your previous Narsika folder into this folder (see docs/OPERATIONS.md), then rerun. New keys would make the existing data unreadable.'
+        }
+        Invoke-Docker -Arguments (Get-ConfigureArguments -Project $project)
+        Invoke-Docker -Stream -Arguments (Get-ConfigureArguments -Project $project -Check)
         Invoke-Docker -Arguments @('compose', 'stop', 'narsika')
         Invoke-Docker -Arguments @('compose', 'run', '--rm', '--no-deps', 'bootstrap')
         try { Invoke-Docker -Arguments @('compose', 'up', '-d', '--no-build', '--wait', '--wait-timeout', '120') }

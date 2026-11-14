@@ -12,10 +12,11 @@ from tools import network_check, package_release
 
 def test_network_check_covers_every_build_download():
     hosts = [url.split('/')[2] for _, url in network_check.targets({})]
-    assert hosts == ['pypi.org', 'files.pythonhosted.org', 'galaxy.ansible.com', 'deb.debian.org']
+    s3 = 'ansible-galaxy-ng.s3.dualstack.us-east-1.amazonaws.com'
+    assert hosts == ['pypi.org', 'files.pythonhosted.org', 'galaxy.ansible.com', s3, 'deb.debian.org']
     # A mirror serves its own files, but Galaxy and Debian are still needed.
     mirrored = [url.split('/')[2] for _, url in network_check.targets({'NARSIKA_PIP_INDEX_URL': 'https://mirror.example.org/simple'})]
-    assert mirrored == ['mirror.example.org', 'galaxy.ansible.com', 'deb.debian.org']
+    assert mirrored == ['mirror.example.org', 'galaxy.ansible.com', s3, 'deb.debian.org']
 
 
 @pytest.mark.parametrize('error,expected', [
@@ -34,6 +35,8 @@ def test_any_http_answer_counts_as_reachable(monkeypatch):
         raise urllib.error.HTTPError(request.full_url, 404, 'Not Found', None, None)
     monkeypatch.setattr(network_check.urllib.request, 'urlopen', answer)
     assert network_check.probe('https://files.pythonhosted.org/') is None
+    # Over plain HTTP the error may come from a proxy that cannot reach the host.
+    assert 'HTTP 404' in network_check.probe('http://deb.debian.org/debian/dists/bookworm/InRelease')
 
 
 def test_failed_check_prints_one_cause_naming_the_host(monkeypatch, capsys):

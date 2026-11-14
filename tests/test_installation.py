@@ -60,6 +60,7 @@ printf '%s\\n' "$*" >> "$INSTALL_LOG"
 case "$*" in
   'info --format '* ) echo linux ;;
   'compose up --help') echo --wait-timeout ;;
+  'volume inspect '*) exit 1 ;;
   'compose port '*) echo 127.0.0.1:8123 ;;
   *narsika-network-check.py) [[ "$FAIL_STEP" != network ]] || { echo 'NARSIKA_SETUP_CAUSE: Cannot reach files.pythonhosted.org (Python package files): DNS name resolution failed.'; exit 3; } ;;
   'build '*) [[ -z "$BUILD_CAUSE" ]] || echo "#14 3.2 NARSIKA_SETUP_CAUSE: $BUILD_CAUSE"; [[ "$FAIL_STEP" != build ]] ;;
@@ -110,4 +111,7 @@ esac
     check=next(i for i,line in enumerate(lines) if 'network_check.py' in line)
     assert '@sha256:' in lines[check] and all(not line.startswith('build ') for line in lines[:check])
     if fail_step=='configuration':assert 'compose up -d' not in commands
+    # Creating and checking .env must use one user, or the check cannot read the 0600 file.
+    users={line.split('--user ')[1].split()[0] for line in lines if 'configure.py' in line}
+    assert len(users)<=1,users
     if successful:assert 'http://127.0.0.1:8123' in result.stdout

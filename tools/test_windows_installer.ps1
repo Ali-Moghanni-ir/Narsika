@@ -15,6 +15,8 @@ function Get-EngineType { 'linux' }
 function Start-LinuxEngine {}
 function Install-WSL { throw 'Unexpected WSL install on a healthy engine' }
 function Install-DockerDesktop { throw 'Unexpected Docker install on a healthy engine' }
+function Test-ExistingData { $script:ExistingData }
+$script:ExistingData = $false
 function Invoke-Docker {
     param([string[]]$Arguments, [switch]$Stream)
     $command = $Arguments -join ' '
@@ -27,6 +29,14 @@ Start-Narsika
 if (-not ($script:Calls | Where-Object { $_ -like 'run * /setup/configure.py' })) { throw 'Configuration generation missing' }
 if (-not ($script:Calls | Where-Object { $_ -like '*configure.py --check' })) { throw 'Configuration check missing' }
 if (-not ($script:Calls | Where-Object { $_ -like 'compose up *--wait*' })) { throw 'Health wait missing' }
+# configure.py writes .env as root with mode 0600, so the check must run as the same user.
+$setup = @($script:Calls | Where-Object { $_ -like '*/setup/configure.py*' })
+if ($setup.Count -ne 2 -or @($setup | Where-Object { $_ -notlike '* --user 0:0 *' }).Count) { throw "Configuration steps do not share one user: $($setup -join ' | ')" }
+# A data volume without its .env must stop setup before new keys are generated.
+$script:Calls.Clear(); $script:ExistingData = $true; $failed = $false
+try { Start-Narsika } catch { $failed = $_.Exception.Message -like '*Copy .env from your previous*' }
+if (-not $failed -or ($script:Calls | Where-Object { $_ -like '*/setup/configure.py*' })) { throw 'Existing data volume without .env was not protected' }
+$script:ExistingData = $false
 # The network check runs before the build, from the pinned base image.
 $checkIndex = [array]::FindIndex($script:Calls.ToArray(), [Predicate[string]]{ param($c) $c -like 'run --rm *network_check.py' })
 $buildIndex = [array]::FindIndex($script:Calls.ToArray(), [Predicate[string]]{ param($c) $c -like 'build *' })

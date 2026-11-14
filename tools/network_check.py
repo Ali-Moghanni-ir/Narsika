@@ -31,6 +31,8 @@ def targets(environ: dict) -> list[tuple[str, str]]:
         # pypi.org only lists packages; the wheels come from this host.
         result.append(('Python package files', 'https://files.pythonhosted.org/'))
     result.append(('Ansible collections', 'https://galaxy.ansible.com/api/'))
+    # shortcut: Galaxy currently redirects collection downloads to this S3 host; follow a lock-file URL's redirects if that changes.
+    result.append(('Ansible collection files', 'https://ansible-galaxy-ng.s3.dualstack.us-east-1.amazonaws.com/'))
     result.append(('Debian packages', 'http://deb.debian.org/debian/dists/bookworm/InRelease'))
     return result
 
@@ -62,9 +64,10 @@ def probe(url: str) -> str | None:
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             response.read(1)
-    except urllib.error.HTTPError:
-        # An HTTP error status still proves DNS, routing, proxy and TLS work.
-        return None
+    except urllib.error.HTTPError as error:
+        # Over HTTPS an error status comes from the host itself, so DNS, routing, proxy and TLS work.
+        # Over plain HTTP a proxy answers on the host's behalf, so its error status proves nothing.
+        return None if url.startswith('https:') else f'HTTP {error.code} from the proxy or server'
     except (urllib.error.URLError, OSError, ValueError) as error:
         return reason(error)
     return None

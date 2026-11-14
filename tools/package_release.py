@@ -49,7 +49,8 @@ def main():
     args=parser.parse_args()
     files=release_files()
     manifest=ROOT/'MANIFEST.sha256'
-    manifest.write_text(''.join(hashlib.sha256(path.read_bytes()).hexdigest()+'  '+path.relative_to(ROOT).as_posix()+'\n' for path in files))
+    # Bytes, not write_text: on Windows text mode would write CRLF and break `sha256sum -c`.
+    manifest.write_bytes(''.join(hashlib.sha256(path.read_bytes()).hexdigest()+'  '+path.relative_to(ROOT).as_posix()+'\n' for path in files).encode('ascii'))
     args.destination.parent.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(args.destination,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as archive:
         for path in files+[manifest]:archive.write(path,'narsika/'+path.relative_to(ROOT).as_posix())

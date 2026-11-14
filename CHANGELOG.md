@@ -18,6 +18,15 @@ Notable changes to Narsika. Dates are in UTC. Versions follow [semantic versioni
 - Before the long build, a network check from the pinned base image stops setup within seconds and names the host it cannot reach (package index, package files, Ansible Galaxy or Debian).
 - Failed Python package installs now tell DNS, proxy, TLS and connection problems apart from version-resolution errors, and the launchers repeat that one-line cause in their final error.
 - Release packaging fails when a shipped file is missing from `MANIFEST.sha256`, and the Windows launcher warns about files left over from an older version in the same folder.
+- Windows Docker setup no longer stops with `PermissionError: ... '/setup/.env'`: the configuration check now runs as the same user (root) that created the 0600 `.env`. The installer test asserts this.
+- Both Docker launchers refuse to create new keys when a data volume with a database exists but the folder has no `.env`, and tell you to copy the old `.env` instead of making existing data unreadable.
+- Linux Docker setup works with rootless Docker and Docker Desktop for Linux (setup containers run as container root there), on SELinux engines (`label=disable` on setup containers), and installs `docker-buildx` on Arch and openSUSE.
+- `configure.py` reports unreadable or uncreatable `.env` files with one clear line instead of a traceback; the Linux launcher repeats it.
+- The network check also tests the Ansible collection download host (`ansible-galaxy-ng.s3.dualstack.us-east-1.amazonaws.com`), and a proxy error page for the plain-HTTP Debian probe now counts as a failure.
+- The container health check ignores proxy variables, so a runtime `HTTP_PROXY` cannot mark a working container unhealthy.
+- Builds use `--provenance=false`, so a proxy URL passed as a build argument is not recorded in an attestation.
+- `run_windows.bat -WSL` passes the Windows folder to `wsl --cd` directly (non-ASCII folder names work) and no longer blames systemd for every failure; Windows paths containing `[` or `]` work.
+- The Linux launcher no longer treats a failed streamed step as successful when its last output line has no newline.
 
 ## 0.9.0 — 2026-10-19
 

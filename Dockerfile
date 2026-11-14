@@ -29,5 +29,6 @@ COPY --chown=root:root LICENSE runtime.py wsgi.py app.py gunicorn.conf.py ./
 RUN ln -s Playbooks/Original /opt/narsika/playbooks
 USER narsika
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"
+# No proxy: a runtime HTTP_PROXY (for example from Docker's client config) must not capture 127.0.0.1.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD python -c "import urllib.request as u; u.build_opener(u.ProxyHandler({})).open('http://127.0.0.1:8000/healthz', timeout=3)"
 CMD ["python", "app.py"]
