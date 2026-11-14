@@ -3,7 +3,8 @@
   'use strict';
   const N=window.Narsika, {$,$$,h,icon,apiFetch,download}=N;
   const bootstrap=JSON.parse($('#bootstrap').textContent);
-  const devices=bootstrap.devices, role=bootstrap.user.role;
+  // Only platforms whose registry entry offers the firewall workflow are listed.
+  const devices=bootstrap.devices.filter(d=>(bootstrap.platforms||[]).some(p=>p.id===d.platform&&p.capabilities.includes('firewall'))), role=bootstrap.user.role;
   const state={device:null, snapshot:null, changes:[], capabilities:null, busy:false, applying:false, receipt:null, poll:null, timer:null, watchId:null};
   const dialog=$('#fw-dialog');
   const api=async(path,body)=> (await apiFetch('/api/firewall'+path,body===undefined?{}:{method:'POST',body})).data;

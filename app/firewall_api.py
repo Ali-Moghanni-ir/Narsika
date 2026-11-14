@@ -7,7 +7,7 @@ from sqlalchemy import update
 from .api import get, ok
 from .models import db, Device, FirewallReview, OperationRun
 from .security import require, payload, encrypt, decrypt, audit, fail
-from .services import firewall as fw
+from .services import firewall as fw, platforms
 from .services.network import device_lock
 from .services.jobs import enqueue, target_identity, worker_available
 
@@ -36,6 +36,7 @@ def capabilities():
 def refresh(ident):
     payload(set())
     device = get(Device, ident)
+    platforms.require(device, platforms.FIREWALL)
     with device_lock(device.id):
         state = fw.read_state(device)
     state = fw.annotate_receipt_matches(state, device)
@@ -47,6 +48,7 @@ def refresh(ident):
 def review(ident):
     data = payload({'source_ip', 'changes'}, ('source_ip', 'changes'))
     device = get(Device, ident)
+    platforms.require(device, platforms.FIREWALL)
     # Reject malformed input before connecting to a network device.
     fw.normalize(data, device)
     with device_lock(device.id):

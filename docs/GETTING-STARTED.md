@@ -22,14 +22,14 @@ Accounts are disabled rather than deleted, so their history stays attributable. 
 
 Open **Settings → Credentials**.
 
-- **SSH profile** — username plus a password or private key (with optional passphrase); for Cisco, an optional enable password. The account needs the privileges your operations require: read-only is enough for health and backups, configuration rights for VLAN, firewall and changing Playbooks.
+- **SSH profile** — username plus a password or private key (with optional passphrase), and an optional second password: the enable password for Cisco, or the sudo password for Linux (when it is empty, sudo is given the SSH password). The account needs the privileges your operations require: read-only is enough for health and backups, configuration rights for VLAN, firewall and changing Playbooks. On Linux, an ordinary account without sudo is enough for health, interfaces and backups; only the package and service Playbooks use sudo.
 - **SNMPv3 profile** (optional) — username with SHA-256 authentication and AES-128 privacy (authPriv). Needed for interface counters and traffic rates.
 
 Secrets are encrypted at rest and never shown again. To change a secret, enter a new one; leaving the field empty keeps the stored value.
 
 ## 4. Add a device
 
-Open **Inventory → Add device** and enter a name, the management IPv4 address, the platform (Cisco or MikroTik), SSH port and, optionally, the SNMP port, group, model and notes. Assign the SSH profile and, if you have one, the SNMPv3 profile.
+Open **Inventory → Add device** and enter a name, the management IPv4 address, the platform (Cisco IOS, MikroTik RouterOS or Linux server), SSH port and, optionally, the SNMP port, group, model and notes. Assign the SSH profile and, if you have one, the SNMPv3 profile.
 
 The device address must be inside the networks Narsika is allowed to manage (`NARSIKA_ALLOWED_NETWORKS`, private IPv4 ranges by default; see [Operations](OPERATIONS.md#configuration)).
 
@@ -47,6 +47,8 @@ Open **Device health** and select the device. Narsika collects reachability, ide
 
 **Interfaces** shows link state and, with an SNMPv3 profile, traffic rates. Rates appear after two valid counter samples.
 
+On a **Linux server**, health also shows the hostname, kernel, load average, CPU count, the fullest local filesystem with a table of all local filesystems, and failed systemd units. Interfaces are read from the kernel counters twice, one second apart, so rates appear without SNMPv3. Narsika runs fixed, read-only shell scripts for this and never uses sudo.
+
 Monitoring is on demand: nothing is polled in the background when no one is looking.
 
 ## 7. Take your first backup
@@ -55,10 +57,13 @@ Open **Backups** and capture a configuration from the device. Backups are encryp
 
 Take a backup before any change. Firewall changes take one automatically.
 
+On a **Linux server**, a backup is a read-only text snapshot: system identity, links, addresses, routes and policy rules, listening sockets, enabled systemd units, installed packages, and the configuration files Narsika knows about, such as `/etc/hosts`, Netplan and ifupdown files, `/etc/ssh/sshd_config`, sysctl, cron and saved firewall rules. It is collected without sudo, so files the account cannot read are listed as not readable instead. Files that normally hold private keys or passphrases — `/etc/shadow`, SSH host keys, WireGuard and NetworkManager connections, SNMP configuration — are never collected. The snapshot is for comparison and as a recovery reference; it is not a restorable image.
+
 ## 8. Run operations
 
-- **Playbooks** — pick a Playbook for the device's platform, review its variables (JSON) and choose **Preview** (validate and show the plan, no configuration change) or **Apply configuration**. Runs are queued, shown live, and kept in **Recent runs** with their artifacts. See the [Playbook library](../Playbooks/README.md).
+- **Playbooks** — pick a Playbook for the device's platform, fill in its form (included Playbooks; uploaded ones use a JSON variables editor) and choose **Preview** (validate and show the plan, no configuration change) or **Apply configuration**. Runs are queued, shown live, and kept in **Recent runs** with their artifacts. See the [Playbook library](../Playbooks/README.md).
 - **VLAN management** (Cisco IOS) — view VLANs and create, rename or remove one; saving to startup-config is optional.
+- **Linux Playbooks** — a health report, a pending-updates report, package install/upgrade/remove and systemd service control, each with Preview and Apply. See the [Playbook library](../Playbooks/README.md).
 - **Firewall** — reviewed Allow/Block rules on RouterOS and Cisco, including new Cisco ACLs. See [Firewall](FIREWALL.md).
 - **Schedules** — run backups or Playbooks automatically. See [Scheduled tasks](SCHEDULES.md).
 

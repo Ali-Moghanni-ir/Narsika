@@ -14,13 +14,22 @@ def probe(ip,port):
     except OSError:return None
 
 
+LINUX_BANNER_DISTRIBUTIONS = ('ubuntu', 'debian', 'raspbian')
+
+
 def vendor_hint(banner: str) -> str:
-    """Guess the vendor from an SSH banner; RouterOS announces itself as ROSSSH."""
+    """Guess the platform from an SSH banner; RouterOS announces itself as ROSSSH.
+
+    Only distributions that name themselves in the OpenSSH banner hint Linux. A
+    plain OpenSSH banner stays unknown: BSD hosts and many appliances send it too.
+    """
     banner = banner.lower()
     if 'mikrotik' in banner or 'rosssh' in banner:
         return 'mikrotik'
     if 'cisco' in banner:
         return 'cisco'
+    if 'openssh' in banner and any(name in banner for name in LINUX_BANNER_DISTRIBUTIONS):
+        return 'linux'
     return 'unknown'
 
 

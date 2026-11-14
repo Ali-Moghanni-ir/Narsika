@@ -11,8 +11,9 @@ flowchart LR
     F --> Q["Operation queue<br>services/jobs.py"]
     S["Scheduler<br>services/scheduling.py"] --> Q
     Q --> A["Ansible subprocess<br>private inventory + callback"]
-    F -->|on-demand reads| N["Netmiko SSH · SNMPv3<br>services/network.py · telemetry.py"]
-    A --> D["Cisco / MikroTik"]
+    F -->|on-demand reads| P["Platform drivers<br>services/platforms/"]
+    P --> N["Netmiko SSH · SSH exec · SNMPv3<br>network.py · telemetry.py"]
+    A --> D["Cisco / MikroTik / Linux"]
     N --> D
 ```
 
@@ -22,7 +23,7 @@ flowchart LR
 | API | JSON under `/api` with a uniform envelope, cookie authentication and CSRF header. |
 | Data | SQLAlchemy models on SQLite with WAL and foreign keys. |
 | Work | An in-process job executor and scheduler; Ansible runs as a subprocess. |
-| Devices | Netmiko over SSH for reads, Ansible `network_cli` for changes, pysnmp for SNMPv3. |
+| Devices | A platform driver per device type. Network devices: Netmiko over SSH for reads, Ansible `network_cli` for changes. Linux servers: an SSH exec channel running fixed POSIX shell scripts for reads, Ansible's `ssh` connection for Playbooks. pysnmp for SNMPv3 on every platform. |
 
 ## Process model
 
@@ -64,22 +65,38 @@ See [Migration](MIGRATION.md) for importing older databases.
 - Cancelling stops the Ansible process group; commands already accepted by a device are not undone.
 - The health endpoint reports whether the dispatcher thread is alive, and new submissions are refused if it is not.
 
+## Platform drivers
+
+`services/platforms/` is the only place that knows what a device type is. Each `Platform` entry declares an ID, label, vendor name, OS type, driver module and capabilities (`health`, `interfaces`, `backup`, `playbooks`, `vlan`, `firewall`). The drivers (`cisco.py`, `mikrotik.py`, `linux.py`) implement health, interfaces, configuration export, identity verification and the Ansible connection variables for their platform.
+
+- Operations call `platforms.require(device, capability)` before any network access, so an unsupported operation fails with `422 UNSUPPORTED`. Linux servers offer health, interfaces, backups and Playbooks, but not VLAN management or Firewall.
+- The web interface reads the registry from the bootstrap data (`platforms`) for its platform lists, vendor names and capability filters; hiding an option there is convenience, not security.
+- Adding a device type means one registry entry and one driver module.
+
+### Linux driver
+
+- Each read opens one SSH session with paramiko, loads Narsika's `known_hosts` read-only, rejects unknown keys and reports changed ones (`HOST_KEY_REQUIRED`, `HOST_KEY_CHANGED`).
+- It runs `/bin/sh -s` and sends a fixed script on standard input. The script reads the whole program before running it, sets `LC_ALL=C`, bounds commands that can hang (`df`, `systemctl`) and marks its output sections. Output before the first marker, such as text a login shell prints, is ignored; output without the end marker is an error. Output size and run time are capped.
+- No sudo is used and nothing is written on the server. Unreadable files and unavailable measurements stay `null` or are listed as not readable.
+
 ## Monitoring
 
 Monitoring is **on demand**: samples are collected only while a monitoring page is visible, and there is no background telemetry daemon or stored history.
 
 - Health uses real SSH commands through Netmiko; ICMP reachability and authenticated health are reported separately. Values a platform does not provide stay `null` (shown as N/A).
-- Interfaces use SNMPv3 authPriv when a profile is assigned; otherwise Cisco output is parsed with TextFSM and RouterOS reports CLI link state.
+- Interfaces use SNMPv3 authPriv when a profile is assigned; otherwise Cisco output is parsed with TextFSM, RouterOS reports CLI link state, and Linux reads `/sys/class/net` counters twice, one second apart, so its rates are averages over that second.
 - Rates need two valid counter samples; resets, restarts, discontinuities and long gaps are rejected.
 - Concurrent viewers share a sample for up to four seconds. Cache identities include the target and credential, so changing either invalidates old samples.
 
 ## Discovery
 
-Scans are limited to `NARSIKA_ALLOWED_NETWORKS` and `NARSIKA_SCAN_MAX_HOSTS` (≤ 256). An SSH banner only marks a candidate. Import requires a recent, authenticated verification of a Cisco or RouterOS identity; addresses already in inventory are skipped.
+Scans are limited to `NARSIKA_ALLOWED_NETWORKS` and `NARSIKA_SCAN_MAX_HOSTS` (≤ 256). An SSH banner only marks a candidate. Import requires a recent, authenticated verification of a Cisco, RouterOS or Linux identity; addresses already in inventory are skipped.
 
 ## SSH trust
 
-Narsika keeps its own `known_hosts` in the data directory. Unknown keys are never accepted automatically; an administrator verifies and trusts a fingerprint, and a changed key is rejected until re-verified. The same file is used by Netmiko and by Ansible.
+Narsika keeps its own `known_hosts` in the data directory. Unknown keys are never accepted automatically; an administrator verifies and trusts a fingerprint, and a changed key is rejected until re-verified. The same file is used by Netmiko, by the Linux driver and by Ansible.
+
+For Linux Playbooks, Ansible runs the OpenSSH client with `-F /dev/null` (no user or system SSH configuration), `StrictHostKeyChecking=yes`, `UserKnownHostsFile` set to Narsika's file, `GlobalKnownHostsFile=/dev/null` and `UpdateHostKeys=no`, so OpenSSH can neither trust nor record a key by itself. Password-only profiles also disable public-key authentication, so the service account's own keys are never offered to a server.
 
 `ansible-pylibssh 1.4.0` does not consume the `config_file` argument that `ansible.netcommon 8.6.2` forwards, which caused trusted keys to be rejected. `tools/patch_ansible.py` applies a small, hash-checked adaptation that passes Narsika's `known_hosts` through the supported `knownhosts` argument. Host-key checking stays enabled, and the script refuses collection versions it does not recognise.
 
@@ -89,6 +106,7 @@ Narsika keeps its own `known_hosts` in the data directory. Unknown keys are neve
 - Each job uses the release's own Ansible executable and a single `ANSIBLE_COLLECTIONS_PATH`, with system-path collection scanning disabled; inherited global Ansible overrides are discarded. Release paths are captured at import, so switching the `current` release does not affect a running worker.
 - The `narsika_safe` callback emits only module names and state. Raw results, task names and secret-bearing output never reach the audit log.
 - Persistent control sockets use a short private temporary directory to stay under Unix socket path limits.
+- Linux runs use pipelining and one SSH connection per task (no `ControlPersist` master outlives the job), the per-user remote temporary directory (`~/.ansible/tmp`) instead of the shared one used for network devices, and the credential's password through Ansible's `ssh_askpass` mechanism, never argv. A private key is decrypted into the run's private inventory and loaded into an `ssh-agent` that Ansible starts for that run only and stops with it. sudo receives the profile's sudo password, or its SSH password when none is stored.
 - Uploaded Playbooks are **trusted administrator code**: YAML is validated, but there is no sandbox. A Playbook can use anything the service account can reach.
 - Artifacts are collected from `narsika_artifact_root`, encrypted and kept even when a run fails or is cancelled.
 

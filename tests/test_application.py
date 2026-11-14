@@ -19,7 +19,8 @@ def test_empty_installation_and_authentication(client,app):
         assert Device.query.count()==0
         assert Credential.query.count()==0
         assert Backup.query.count()==0
-        assert Playbook.query.count()==16
+        # 5 Cisco + 5 MikroTik + 4 Linux bundled Playbooks and 6 originals.
+        assert Playbook.query.count()==20
         assert User.query.one().password!='admin'
 
 

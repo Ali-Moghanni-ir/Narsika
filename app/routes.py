@@ -122,6 +122,15 @@ def add_group():
     create_group({'name':request.form.get('name') or request.form.get('group_name')})
     return redirect('/')
 
+def legacy_platform(os_type: str) -> str:
+    """Map the original panel's os_type field to a platform id."""
+    value=os_type.lower()
+    if 'mikrotik' in value:
+        return 'mikrotik'
+    if 'linux' in value:
+        return 'linux'
+    return 'cisco'
+
 @web.post('/add-device')
 @require('admin')
 def add_device():
@@ -129,7 +138,7 @@ def add_device():
     data=request.form
     credential=Credential(**credential_values({'name':'Device '+str(time.time_ns()),'username':data.get('username'),'kind':'ssh','password':data.get('password','')}))
     db.session.add(credential);db.session.flush()
-    create_device({'name':data.get('name') or data.get('device_name'),'ip_address':data.get('ip_address') or data.get('ip'),'platform':'mikrotik' if 'mikrotik' in data.get('os_type','').lower() else 'cisco', 'credential_id':credential.id,'group_id':data.get('group_id') or None})
+    create_device({'name':data.get('name') or data.get('device_name'),'ip_address':data.get('ip_address') or data.get('ip'),'platform':legacy_platform(data.get('os_type','')), 'credential_id':credential.id,'group_id':data.get('group_id') or None})
     return redirect('/')
 
 @web.post('/upload-playbook')

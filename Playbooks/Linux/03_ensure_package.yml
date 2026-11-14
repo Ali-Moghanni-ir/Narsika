@@ -1,0 +1,153 @@
+---
+- name: Narsika | Ensure a package state
+  hosts: '{{ narsika_targets | default("linux") }}'
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    narsika_apply: false
+    narsika_artifact_root: '{{ playbook_dir }}/../artifacts'
+    package_name: null
+    package_state: present
+    # Reads the installed version without sudo and without python3-apt.
+    _package_query: >-
+      {{ ["dpkg-query", "-W", "--showformat=${Status}|${Version}\n", package_name] if ansible_facts.pkg_mgr == "apt"
+         else ["rpm", "-q", "--qf", "%{VERSION}-%{RELEASE}.%{ARCH}\n", package_name] }}
+  pre_tasks:
+  - name: Validate platform and SSH connection
+    ansible.builtin.assert:
+      that:
+      - ansible_connection in ["ssh", "ansible.builtin.ssh"]
+      fail_msg: Use the linux inventory group and the ssh connection.
+  - name: Require a boolean execution flag
+    ansible.builtin.assert:
+      that:
+      - narsika_apply is boolean
+      fail_msg: Set narsika_apply to YAML/JSON true or false, not a string.
+  - name: Validate package input
+    ansible.builtin.assert:
+      that:
+      - package_name is string
+      - package_name is match("^[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}$")
+      - package_state in ["present", "absent", "latest"]
+      fail_msg: Give one package name (letters, digits, . + _ -) and package_state present, absent or latest.
+  - name: Refuse to remove packages the server or Narsika depends on
+    ansible.builtin.assert:
+      that:
+      - package_state != "absent" or package_name not in ["apt", "base-files", "bash", "coreutils", "dash", "dnf",
+        "dpkg", "glibc", "grub-efi-amd64", "grub-pc", "grub2-common", "init", "kernel", "kernel-core", "libc6",
+        "linux-image-generic", "login", "openssh", "openssh-server", "passwd", "python3", "rpm", "shadow-utils",
+        "ssh", "sudo", "systemd", "systemd-sysv", "util-linux", "yum"]
+      fail_msg: Removing {{ package_name }} can make the server unusable or unreachable. Remove it manually if you must.
+  tasks:
+  - name: Identify the package manager
+    ansible.builtin.setup:
+      gather_subset:
+      - '!all'
+  - name: Require a supported package manager
+    ansible.builtin.assert:
+      that:
+      - ansible_facts.system == "Linux"
+      - ansible_facts.pkg_mgr in ["apt", "dnf", "dnf5", "yum"]
+      fail_msg: This Playbook supports Linux servers with apt, dnf or yum.
+  - name: Read the installed version before any change
+    ansible.builtin.command:
+      argv: '{{ _package_query }}'
+    environment:
+      LC_ALL: C
+    register: _before
+    changed_when: false
+    failed_when: false
+  - name: Interpret the installed version
+    ansible.builtin.set_fact:
+      _installed_before: >-
+        {{ (_before.stdout_lines | select("match", "^[a-z]+ [a-z]+ installed[|]") | map("regex_replace", "^[^|]*[|]", "") | list)
+           if ansible_facts.pkg_mgr == "apt" else (_before.stdout_lines if _before.rc == 0 else []) }}
+  - name: Planned change
+    ansible.builtin.debug:
+      msg:
+        package: '{{ package_name }}'
+        requested_state: '{{ package_state }}'
+        installed_now: '{{ _installed_before }}'
+  - name: Execution mode
+    ansible.builtin.debug:
+      msg:
+        apply: '{{ narsika_apply }}'
+        check_mode: '{{ ansible_check_mode }}'
+        note: Preview by default. The package manager changes the server only with narsika_apply=true in normal mode.
+  - name: Preview with the package manager (check mode, sudo)
+    when: not (narsika_apply | bool) or ansible_check_mode
+    ansible.builtin.package:
+      name: '{{ package_name }}'
+      state: '{{ package_state }}'
+    become: true
+    check_mode: true
+    register: _preview
+  - name: Preview result
+    when: not (narsika_apply | bool) or ansible_check_mode
+    ansible.builtin.debug:
+      msg: '{{ "The package would change." if _preview.changed else "The package is already in the requested state." }}'
+  - name: Apply the reviewed change to one host
+    when: narsika_apply | bool and not ansible_check_mode
+    block:
+    - name: Create restricted artifact root
+      ansible.builtin.file:
+        path: '{{ narsika_artifact_root }}'
+        state: directory
+        mode: '0700'
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Allocate a unique directory for this host and run
+      ansible.builtin.tempfile:
+        state: directory
+        path: '{{ narsika_artifact_root }}'
+        prefix: host_{{ inventory_hostname | regex_replace("[^A-Za-z0-9_.-]", "_") }}_
+      register: _artifact
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Record the package state before the change
+      ansible.builtin.copy:
+        dest: '{{ _artifact.path }}/package-before.json'
+        mode: '0600'
+        content: |
+          {{ {"host": inventory_hostname, "package": package_name, "requested_state": package_state,
+              "installed_before": _installed_before} | to_nice_json }}
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_connection: local
+        ansible_become: false
+        ansible_python_interpreter: '{{ ansible_playbook_python }}'
+    - name: Ensure the package state
+      ansible.builtin.package:
+        name: '{{ package_name }}'
+        state: '{{ package_state }}'
+      become: true
+    - name: Read the installed version after the change
+      ansible.builtin.command:
+        argv: '{{ _package_query }}'
+      environment:
+        LC_ALL: C
+      register: _after
+      changed_when: false
+      failed_when: false
+    - name: Verify the package state
+      ansible.builtin.assert:
+        that:
+        - (_installed_after | length > 0) == (package_state != "absent")
+        fail_msg: The package manager finished, but {{ package_name }} is not in the requested state.
+      vars:
+        _installed_after: >-
+          {{ (_after.stdout_lines | select("match", "^[a-z]+ [a-z]+ installed[|]") | list)
+             if ansible_facts.pkg_mgr == "apt" else (_after.stdout_lines if _after.rc == 0 else []) }}
+    - name: Before-change record
+      ansible.builtin.debug:
+        msg: '{{ _artifact.path }}/package-before.json'

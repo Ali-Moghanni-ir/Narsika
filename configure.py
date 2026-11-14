@@ -15,7 +15,9 @@ def check_configuration(destination):
     """Validate configuration without importing third-party packages or exposing secrets."""
     if not destination.is_file():raise SystemExit('Missing .env. Run the installer to create it.')
     values={}
-    for number,line in enumerate(destination.read_text(encoding='utf-8-sig').splitlines(),1):
+    try:text=destination.read_text(encoding='utf-8-sig')
+    except OSError as error:raise SystemExit(f'NARSIKA_SETUP_CAUSE: Cannot read .env ({error.strerror}). Run setup as the account that owns .env, or give that account ownership of it (keep mode 0600).') from None
+    for number,line in enumerate(text.splitlines(),1):
         if not line.strip() or line.lstrip().startswith('#'):continue
         key,separator,value=line.partition('=')
         if not separator or not key.startswith('NARSIKA_') or key in values:
@@ -91,7 +93,8 @@ def main():
         'NARSIKA_PORT='+str(args.port),
         'NARSIKA_SCAN_MAX_HOSTS=256',
         'NARSIKA_JOB_TIMEOUT=300',''])
-    fd=os.open(destination,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    try:fd=os.open(destination,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    except OSError as error:raise SystemExit(f'NARSIKA_SETUP_CAUSE: Cannot create .env in the project folder ({error.strerror}). The setup container must be able to write this folder.') from None
     with os.fdopen(fd,'w') as stream:stream.write(content)
     print('Private keys created. The installer will generate an initial password directly in the database.')
 

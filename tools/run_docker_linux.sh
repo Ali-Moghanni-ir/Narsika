@@ -34,8 +34,8 @@ install_docker() {
       "${admin[@]}" curl -fsSL "https://download.docker.com/linux/$repo_os/docker-ce.repo" -o /etc/yum.repos.d/docker-ce.repo
       "${admin[@]}" dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
       ;;
-    arch|manjaro) "${admin[@]}" pacman -S --needed --noconfirm docker docker-compose ;;
-    opensuse*|sles) "${admin[@]}" zypper --non-interactive install docker docker-compose ;;
+    arch|manjaro) "${admin[@]}" pacman -S --needed --noconfirm docker docker-buildx docker-compose ;;
+    opensuse*|sles) "${admin[@]}" zypper --non-interactive install docker docker-buildx docker-compose ;;
     *) echo "Automatic Docker installation is not supported on $ID. Install Docker Engine and Compose v2, then rerun." >&2; exit 1 ;;
   esac
 }
@@ -81,6 +81,59 @@ if ! "${docker_cmd[@]}" compose up --help 2>/dev/null | grep -q -- --wait-timeou
 fi
 "${docker_cmd[@]}" compose version
 "${docker_cmd[@]}" compose up --help | grep -q -- --wait-timeout || { echo 'An older user-level Compose plugin is shadowing the installed plugin. Update that plugin and rerun.' >&2; exit 1; }
+# Run a Docker command, show its output live and keep the last cause line printed by
+# Narsika's setup tools, so the final error can repeat it. Pure bash: no tee or awk.
+setup_cause=''
+run_streamed() {
+  local line status=1
+  setup_cause=''
+  while IFS= read -r line; do
+    if [[ $line == '__NARSIKA_EXIT '* ]]; then status=${line#__NARSIKA_EXIT }; continue; fi
+    printf '%s\n' "$line"
+    if [[ $line == *'NARSIKA_SETUP_CAUSE: '* ]]; then setup_cause=${line#*NARSIKA_SETUP_CAUSE: }; fi
+  # An && || list: errexit and the ERR trap must not end the subshell before it reports the status.
+  # The leading newline keeps the marker on its own line when the output does not end with one.
+  done < <("$@" 2>&1 && printf '\n__NARSIKA_EXIT 0\n' || printf '\n__NARSIKA_EXIT %s\n' "$?")
+  return "$status"
+}
+stop_with_cause() {
+  echo "Narsika setup stopped: ${setup_cause:-$1}" >&2
+  echo 'Existing data is preserved. Correct the issue, then rerun this launcher.' >&2
+  exit 1
+}
+# Proxy settings reach only the network check and the build. Docker does not store its
+# predefined proxy build arguments in the image configuration or history.
+proxy=${HTTPS_PROXY:-${https_proxy:-${HTTP_PROXY:-${http_proxy:-}}}}
+proxy_env=() proxy_args=() build_network=()
+if [[ -n $proxy ]]; then
+  no_proxy_value=${NO_PROXY:-${no_proxy:-localhost,127.0.0.1}}
+  for name in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy; do
+    proxy_env+=(-e "$name=$proxy"); proxy_args+=(--build-arg "$name=$proxy")
+  done
+  for name in NO_PROXY no_proxy; do
+    proxy_env+=(-e "$name=$no_proxy_value"); proxy_args+=(--build-arg "$name=$no_proxy_value")
+  done
+  address=${proxy#*://}; address=${address##*@}; address=${address%%/*}
+  host=${address%:*}
+  case $host in
+    # 127.0.0.1 inside a container is the container itself; share the host network for these steps only.
+    127.*|localhost|'[::1]') build_network=(--network host) ;;
+  esac
+  label=${proxy%%://*}://$address; [[ $proxy == *://* ]] || label=$address
+  echo "Using the proxy $label for the network check and the image build only."
+fi
+base_image=''
+while IFS= read -r line; do
+  if [[ $line =~ ^FROM[[:space:]]+([^[:space:]]+) ]]; then base_image=${BASH_REMATCH[1]}; break; fi
+done < Dockerfile
+[[ -n $base_image ]] || { echo 'The Dockerfile has no FROM line. Extract the release again.' >&2; exit 1; }
+check_env=("${proxy_env[@]}")
+if [[ -n ${NARSIKA_PIP_INDEX_URL:-} ]]; then check_env+=(-e "NARSIKA_PIP_INDEX_URL=$NARSIKA_PIP_INDEX_URL"); fi
+echo 'Checking network access for the build (package index and files, Ansible collections, Debian packages).'
+# label=disable: SELinux engines deny unlabelled bind mounts; it is ignored elsewhere and relabels nothing.
+if ! run_streamed "${docker_cmd[@]}" run --rm "${build_network[@]}" "${check_env[@]}" -v "$PWD/tools/network_check.py:/narsika-network-check.py:ro" --security-opt label=disable --entrypoint python "$base_image" /narsika-network-check.py; then
+  stop_with_cause "Docker could not run the base image $base_image for the network check. If Docker Hub is unreachable, configure the Docker daemon proxy and rerun."
+fi
 # Build first: configuration generation runs inside the image, without host Python.
 build_args=()
 for setting in NARSIKA_PIP_INDEX_URL NARSIKA_PIP_TIMEOUT NARSIKA_PIP_RETRIES; do
@@ -88,10 +141,26 @@ for setting in NARSIKA_PIP_INDEX_URL NARSIKA_PIP_TIMEOUT NARSIKA_PIP_RETRIES; do
 done
 echo 'Building Narsika with cached dependencies. First installation still downloads the base image, Python packages and Ansible collections.'
 echo 'After installation, use docker compose up -d --no-build to start without running setup again.'
-"${docker_cmd[@]}" build --progress=plain "${build_args[@]}" -t narsika:local .
+# --provenance=false: an attestation would record the build arguments, including a proxy URL.
+if ! run_streamed "${docker_cmd[@]}" build --progress=plain "${build_network[@]}" "${build_args[@]}" "${proxy_args[@]}" --provenance=false -t narsika:local .; then
+  stop_with_cause 'The image build failed. Read the error above.'
+fi
+# An existing database can only be decrypted with the keys in the old installation's .env.
+data_volume="${COMPOSE_PROJECT_NAME:-narsika}_narsika-data"
+if [[ ! -e .env ]] && "${docker_cmd[@]}" volume inspect "${data_volume,,}" >/dev/null 2>&1 \
+  && "${docker_cmd[@]}" run --rm --network none -v "${data_volume,,}:/data:ro" --entrypoint test narsika:local -e /data/narsika.db; then
+  setup_cause=''
+  stop_with_cause 'An existing Narsika data volume was found, but this folder has no .env. Copy .env from your previous Narsika folder into this folder (see docs/OPERATIONS.md), then rerun. New keys would make the existing data unreadable.'
+fi
+# Rootless Docker and Docker Desktop map container root to the invoking user and every other uid
+# to a subordinate uid that cannot write this folder, so .env must be created as container root there.
+setup_user="$(id -u):$(id -g)"
+if [[ $("${docker_cmd[@]}" info --format '{{.OperatingSystem}} {{.SecurityOptions}}' 2>/dev/null) =~ rootless|Docker\ Desktop ]]; then setup_user=0:0; fi
 terminal=(); [[ -t 0 && -t 1 ]] && terminal=(-it)
-"${docker_cmd[@]}" run --rm "${terminal[@]}" --network none --user "$(id -u):$(id -g)" -v "$PWD:/setup" --entrypoint python narsika:local /setup/configure.py
-"${docker_cmd[@]}" run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD:/setup:ro" --entrypoint python narsika:local /setup/configure.py --check
+"${docker_cmd[@]}" run --rm "${terminal[@]}" --network none --user "$setup_user" -v "$PWD:/setup" --security-opt label=disable --entrypoint python narsika:local /setup/configure.py
+if ! run_streamed "${docker_cmd[@]}" run --rm --network none --user "$setup_user" -v "$PWD:/setup:ro" --security-opt label=disable --entrypoint python narsika:local /setup/configure.py --check; then
+  stop_with_cause 'The configuration check failed. Read the error above.'
+fi
 "${docker_cmd[@]}" compose stop narsika
 "${docker_cmd[@]}" compose run --rm --no-deps bootstrap
 "${docker_cmd[@]}" compose up -d --no-build --wait --wait-timeout 120 || { "${docker_cmd[@]}" compose logs --tail=80 narsika; exit 1; }

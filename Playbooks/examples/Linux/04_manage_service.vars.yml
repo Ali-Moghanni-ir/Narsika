@@ -1,0 +1,6 @@
+---
+service_name: cron
+service_state: started
+service_enabled: true
+allow_management_service_change: false
+narsika_apply: false

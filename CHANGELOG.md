@@ -2,6 +2,33 @@
 
 Notable changes to Narsika. Dates are in UTC. Versions follow [semantic versioning](https://semver.org/); each version has a Git tag `vX.Y.Z` and a [GitHub release](https://github.com/Ali-Moghanni-ir/Narsika/releases) with a ZIP archive and its SHA-256 checksum. Entries before 0.9.0 are listed by date.
 
+## Unreleased
+
+### Added
+- **Playbook forms.** Every included Playbook that takes input now shows a form (labels, choices, examples) instead of a JSON editor: choose the device, fill the fields, Preview or Apply. The server checks types, ranges, choices and formats before a run is queued and drops unknown keys; the three Original playbooks, which have no checks of their own, get strict patterns. Playbooks without input say so; uploaded Playbooks keep the JSON editor.
+- **Linux servers** as a third platform. Health (CPU, memory, load, filesystems, failed systemd units, uptime, kernel and distribution), interfaces with link state and one-second SSH rates, read-only configuration snapshots as backups, discovery hints for Ubuntu, Debian and Raspbian banners, and identity verification. Reads run fixed POSIX shell scripts without sudo and trust only verified host keys.
+- Four Linux Playbooks: health report, pending package updates, ensure a package state, and manage a systemd service, with Preview/Apply and protection for SSH, network and core packages.
+- Linux Playbooks run over OpenSSH with strict host key checking against Narsika's `known_hosts` only. Private keys, including passphrase-protected ones, are loaded into an `ssh-agent` that exists for one run.
+
+### Changed
+- A platform registry and driver modules (`app/services/platforms/`) now decide what each device type supports. VLAN and Firewall requests for a platform without that capability are refused with `422 UNSUPPORTED` before any connection.
+- The interface reads platform names, vendors and capability filters from the server instead of hard-coded Cisco/MikroTik lists. The credential form explains that the enable password is the sudo password on Linux.
+
+### Fixed
+- Docker setup behind a proxy: the Windows and Linux launchers pass `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` (on Windows also the system proxy) to the image build only. A proxy on `127.0.0.1` is reached through Docker Desktop's built-in proxy on Windows and through the host network on Linux. Nothing is stored in the image or the running container.
+- Before the long build, a network check from the pinned base image stops setup within seconds and names the host it cannot reach (package index, package files, Ansible Galaxy or Debian).
+- Failed Python package installs now tell DNS, proxy, TLS and connection problems apart from version-resolution errors, and the launchers repeat that one-line cause in their final error.
+- Release packaging fails when a shipped file is missing from `MANIFEST.sha256`, and the Windows launcher warns about files left over from an older version in the same folder.
+- Windows Docker setup no longer stops with `PermissionError: ... '/setup/.env'`: the configuration check now runs as the same user (root) that created the 0600 `.env`. The installer test asserts this.
+- Both Docker launchers refuse to create new keys when a data volume with a database exists but the folder has no `.env`, and tell you to copy the old `.env` instead of making existing data unreadable.
+- Linux Docker setup works with rootless Docker and Docker Desktop for Linux (setup containers run as container root there), on SELinux engines (`label=disable` on setup containers), and installs `docker-buildx` on Arch and openSUSE.
+- `configure.py` reports unreadable or uncreatable `.env` files with one clear line instead of a traceback; the Linux launcher repeats it.
+- The network check also tests the Ansible collection download host (`ansible-galaxy-ng.s3.dualstack.us-east-1.amazonaws.com`), and a proxy error page for the plain-HTTP Debian probe now counts as a failure.
+- The container health check ignores proxy variables, so a runtime `HTTP_PROXY` cannot mark a working container unhealthy.
+- Builds use `--provenance=false`, so a proxy URL passed as a build argument is not recorded in an attestation.
+- `run_windows.bat -WSL` passes the Windows folder to `wsl --cd` directly (non-ASCII folder names work) and no longer blames systemd for every failure; Windows paths containing `[` or `]` work.
+- The Linux launcher no longer treats a failed streamed step as successful when its last output line has no newline.
+
 ## 0.9.0 — 2026-10-19
 
 Second public release, and the first with a version number (still Public Beta). It includes every change since the 2026-09-12 Public Beta. The full list is in [CHANGELOG.md](https://github.com/Ali-Moghanni-ir/Narsika/blob/main/CHANGELOG.md).

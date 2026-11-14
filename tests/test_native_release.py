@@ -208,6 +208,8 @@ def test_native_failed_upgrade_restores_code_config_and_preserves_data(tmp_path,
             return SimpleNamespace(returncode=0 if enabled else 1,stdout='')
         return SimpleNamespace(returncode=0,stdout='Status: active\n' if args[:2]==['ufw','status'] else '')
     monkeypatch.setattr(installer.subprocess,'run',command)
+    # pip streams its output through dependencies.run_pip; send it to the same fake.
+    monkeypatch.setattr(installer.dependencies,'run_pip',lambda args,env:(command(args).returncode,''))
     def health(port):
         if failure=='health':raise RuntimeError('controlled health failure')
     monkeypatch.setattr(installer,'health',health)

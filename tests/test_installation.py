@@ -37,13 +37,19 @@ def test_valid_configuration_and_bootstrap_cleanup(tmp_path):
     assert 'NARSIKA_ADMIN_PASSWORD' not in path.read_text()
 
 
+def without_proxy():
+    return {k:v for k,v in os.environ.items() if k.lower() not in ('http_proxy','https_proxy','no_proxy','all_proxy')}
+
+
+@pytest.mark.parametrize('extra_env',[{},{'HTTPS_PROXY':'http://127.0.0.1:3128'},{'BUILD_CAUSE':'Cannot resolve files.pythonhosted.org'}],ids=['direct','local-proxy','build-cause'])
 @pytest.mark.parametrize('missing_engine',[False,True])
-@pytest.mark.parametrize('fail_step,successful', [('none',True),('build',False),('configuration',False),('health',False)])
-def test_linux_launcher_no_host_python_and_failure_propagation(tmp_path,fail_step,successful,missing_engine):
+@pytest.mark.parametrize('fail_step,successful', [('none',True),('network',False),('build',False),('configuration',False),('health',False)])
+def test_linux_launcher_no_host_python_and_failure_propagation(tmp_path,fail_step,successful,missing_engine,extra_env):
     project=tmp_path/'project with spaces';project.mkdir()
     shutil.copy(ROOT/'run_linux.sh',project/'run_linux.sh')
     (project/'tools').mkdir()
     shutil.copy(ROOT/'tools/run_docker_linux.sh',project/'tools/run_docker_linux.sh')
+    shutil.copy(ROOT/'Dockerfile',project/'Dockerfile')
     programs=tmp_path/'bin';programs.mkdir()
     # Only expose shell utilities and a controlled Docker process, deliberately no Python.
     for name in ('bash','dirname','id','grep'):
@@ -54,8 +60,10 @@ printf '%s\\n' "$*" >> "$INSTALL_LOG"
 case "$*" in
   'info --format '* ) echo linux ;;
   'compose up --help') echo --wait-timeout ;;
+  'volume inspect '*) exit 1 ;;
   'compose port '*) echo 127.0.0.1:8123 ;;
-  'build '*) [[ "$FAIL_STEP" != build ]] ;;
+  *narsika-network-check.py) [[ "$FAIL_STEP" != network ]] || { echo 'NARSIKA_SETUP_CAUSE: Cannot reach files.pythonhosted.org (Python package files): DNS name resolution failed.'; exit 3; } ;;
+  'build '*) [[ -z "$BUILD_CAUSE" ]] || echo "#14 3.2 NARSIKA_SETUP_CAUSE: $BUILD_CAUSE"; [[ "$FAIL_STEP" != build ]] ;;
   'run '*) [[ "$FAIL_STEP" != configuration ]] ;;
   'compose up -d '*) [[ "$FAIL_STEP" != health ]] ;;
   *) exit 0 ;;
@@ -73,15 +81,37 @@ esac
         for name,body in stubs.items():
             target=programs/name;target.write_text('#!/bin/bash\n'+body+'\n');target.chmod(0o755)
     log=tmp_path/'commands' 
-    result=subprocess.run([str(programs/'bash'),str(project/'run_linux.sh'),'--docker'],env={**os.environ,'PATH':str(programs),'FAIL_STEP':fail_step,'INSTALL_LOG':str(log),'INSTALL_BIN':str(programs),'NARSIKA_PIP_INDEX_URL':'https://mirror.example.org/simple/','NARSIKA_PIP_TIMEOUT':'45','NARSIKA_PIP_RETRIES':'2'},capture_output=True,text=True)
+    result=subprocess.run([str(programs/'bash'),str(project/'run_linux.sh'),'--docker'],env={**without_proxy(),**extra_env,'PATH':str(programs),'FAIL_STEP':fail_step,'INSTALL_LOG':str(log),'INSTALL_BIN':str(programs),'NARSIKA_PIP_INDEX_URL':'https://mirror.example.org/simple/','NARSIKA_PIP_TIMEOUT':'45','NARSIKA_PIP_RETRIES':'2'},capture_output=True,text=True)
     assert (result.returncode==0)==successful,result.stdout+result.stderr
     assert ('Narsika is healthy' in result.stdout)==successful
     commands=log.read_text()
+    if fail_step=='network':
+        # The long build never starts, and the message names the unreachable host.
+        assert 'build --progress' not in commands
+        assert 'Narsika setup stopped: Cannot reach files.pythonhosted.org' in result.stderr
+        return
     assert '--build-arg NARSIKA_PIP_INDEX_URL=https://mirror.example.org/simple/' in commands
     assert '--build-arg NARSIKA_PIP_TIMEOUT=45' in commands
     assert '--build-arg NARSIKA_PIP_RETRIES=2' in commands
     assert 'build --progress=plain' in commands
     if missing_engine:assert 'package install -y docker-ce' in commands
-    if fail_step=='build':assert 'run --rm' not in commands
+    if fail_step=='build':assert 'configure.py' not in commands
+    if fail_step=='build' and extra_env.get('BUILD_CAUSE'):
+        assert 'Narsika setup stopped: '+extra_env['BUILD_CAUSE'] in result.stderr
+    if 'HTTPS_PROXY' in extra_env:
+        assert '--build-arg HTTPS_PROXY=http://127.0.0.1:3128' in commands and '--build-arg NO_PROXY=localhost,127.0.0.1' in commands
+        assert 'build --progress=plain --network host' in commands
+        assert '--network host -e HTTP_PROXY=http://127.0.0.1:3128' in commands and 'network_check.py' in commands
+    else:
+        assert 'PROXY' not in commands and '--network host' not in commands
+    # Runtime containers never receive the build proxy.
+    assert not [line for line in commands.splitlines() if line.startswith('compose') and 'PROXY' in line]
+    # The network check runs first, from the pinned base image.
+    lines=commands.splitlines()
+    check=next(i for i,line in enumerate(lines) if 'network_check.py' in line)
+    assert '@sha256:' in lines[check] and all(not line.startswith('build ') for line in lines[:check])
     if fail_step=='configuration':assert 'compose up -d' not in commands
+    # Creating and checking .env must use one user, or the check cannot read the 0600 file.
+    users={line.split('--user ')[1].split()[0] for line in lines if 'configure.py' in line}
+    assert len(users)<=1,users
     if successful:assert 'http://127.0.0.1:8123' in result.stdout

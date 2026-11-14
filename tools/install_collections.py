@@ -65,6 +65,24 @@ def transient(error):
     return isinstance(error, (TimeoutError, ConnectionError, socket.gaierror)) and not isinstance(error, ssl.SSLError)
 
 
+def network_reason(error):
+    """A short reason for a connection-level failure, or None for other errors."""
+    while isinstance(error, urllib.error.URLError) and not isinstance(error, urllib.error.HTTPError):
+        error = error.reason
+    text = str(error).lower()
+    if isinstance(error, socket.gaierror) or 'name resolution' in text:
+        return 'DNS name resolution failed in the build network (set HTTPS_PROXY for the launcher or fix DNS; NARSIKA_PIP_INDEX_URL does not cover Galaxy)'
+    if 'tunnel connection failed' in text or 'proxy' in text:
+        return 'the proxy refused the connection'
+    if isinstance(error, ssl.SSLCertVerificationError):
+        return 'TLS certificate verification failed (verification stays enabled)'
+    if isinstance(error, (TimeoutError, socket.timeout)) or 'timed out' in text:
+        return 'the connection timed out'
+    if isinstance(error, ConnectionError) or 'refused' in text or 'unreachable' in text:
+        return 'the connection was refused or the network is unreachable'
+    return None
+
+
 def obtain(item, destination, log, artifact_dir=None, attempts=3):
     """An optional read-only artifact directory enables checksum-verified offline installs."""
     filename = item['name'].replace('.', '-') + '-' + item['version'] + '.tar.gz'
@@ -188,7 +206,8 @@ def install(collections=None, artifact_dir=None, root=ROOT):
             traceback.print_exc(file=log); log.flush()
             try: core = importlib.metadata.version('ansible-core')
             except importlib.metadata.PackageNotFoundError: core = 'not installed'
-            if transient(error): cause = 'Galaxy artifact download failed due to a network/DNS/server error.'
+            if network_reason(error): cause = 'Cannot download from galaxy.ansible.com: ' + network_reason(error) + '.'
+            elif transient(error): cause = 'Galaxy artifact download failed due to a network/DNS/server error.'
             elif isinstance(error, urllib.error.HTTPError): cause = f'Galaxy artifact server returned HTTP {error.code}.'
             elif isinstance(error, (ssl.SSLError, urllib.error.URLError)): cause = 'HTTPS connection or certificate verification failed.'
             elif isinstance(error, FileNotFoundError): cause = 'A required local artifact or installation file is missing.'
@@ -219,4 +238,9 @@ def main():
 if __name__ == '__main__':
     try: main()
     except (CollectionInstallError, ValueError, OSError) as error:
-        print(str(error), file=sys.stderr); raise SystemExit(1)
+        print(str(error), file=sys.stderr)
+        cause = next((line for line in str(error).splitlines() if line.startswith('Possible cause: ')), '')
+        if cause:
+            # Launchers repeat this line in their final error message.
+            print('NARSIKA_SETUP_CAUSE: Ansible collections: ' + cause[len('Possible cause: '):], flush=True)
+        raise SystemExit(1)

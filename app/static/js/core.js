@@ -5,7 +5,7 @@
   const paths={grid:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',server:'M3 3h18v7H3z M3 14h18v7H3z M6 6h1 M6 17h1 M10 6h8 M10 17h8',search:'M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',pulse:'M2 12h4l3-8 5 16 3-8h5',ports:'M3 7h18v12H3z M7 7V4h10v3 M7 11v4 M12 11v4 M17 11v4',terminal:'M4 6l6 6-6 6 M13 18h7',layers:'M2 8l10-6 10 6-10 6z M2 12l10 6 10-6 M2 16l10 6 10-6',shield:'M12 2l9 4v6c0 5-9 10-9 10S3 17 3 12V6z M8 12l3 3 5-6',backup:'M3 5h18v14H3z M3 10h18 M10 14h4',clock:'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0 M12 6v6l4 2',settings:'M12 2v3 M12 19v3 M2 12h3 M19 12h3 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2 M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0',plus:'M12 5v14 M5 12h14',arrow:'M5 12h14 M13 6l6 6-6 6',download:'M12 3v12 M7 10l5 5 5-5 M4 16v5h16v-5',upload:'M12 16V3 M7 8l5-5 5 5 M4 16v5h16v-5',refresh:'M20 7v5h-5 M4 17v-5h5 M19 7a8 8 0 0 0-14-2 M5 17a8 8 0 0 0 14 2',more:'M5 12h1 M11 12h1 M17 12h1',close:'M5 5l14 14 M5 19L19 5',check:'M4 12l5 5L20 6',edit:'M16 3l5 5-12 12H4v-5z M13 6l5 5',trash:'M3 6h18 M8 6V3h8v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7',help:'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0 M9 8a3 3 0 0 1 6 0c0 3-3 2-3 5 M12 17h.1',play:'M7 3l14 9-14 9z',stop:'M5 5h14v14H5z',code:'M7 5l-6 7 6 7 M17 5l6 7-6 7 M14 3l-4 18',logout:'M9 3H3v18h6 M9 12h13 M16 6l6 6-6 6',eye:'M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12 M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',copy:'M8 8h13v13H8z M16 8V3H3v13h5'};
   const icon=(name)=>`<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name]||paths.grid}"/></svg>`;
   const icons=(root=document)=>$$('[data-icon]',root).forEach(e=>{e.innerHTML=icon(e.dataset.icon);e.removeAttribute('data-icon');});
-  const badge=(s)=>`<span class="badge ${['online','offline','degraded','unknown','success','failed','verified','running','pending','partial','applied_unverified','cancelled','interrupted','demo','cisco','mikrotik'].includes(String(s).toLowerCase())?String(s).toLowerCase():''}">${['online','offline','degraded','unknown'].includes(s)?'<i class="dot"></i>':''}${h(s)}</span>`;
+  const badge=(s)=>`<span class="badge ${['online','offline','degraded','unknown','success','failed','verified','running','pending','partial','applied_unverified','cancelled','interrupted','demo','cisco','mikrotik','linux'].includes(String(s).toLowerCase())?String(s).toLowerCase():''}">${['online','offline','degraded','unknown'].includes(s)?'<i class="dot"></i>':''}${h(s)}</span>`;
   const validIP=s=>/^(0|[1-9]\d{0,2})(\.(0|[1-9]\d{0,2})){3}$/.test(s)&&s.split('.').every(n=>+n<256);
   const validPort=s=>/^\d+$/.test(String(s))&&+s>=1&&+s<=65535;
   const toast=(msg)=>{const box=$('#toasts');if(!box)return;const el=document.createElement('div');el.className='toast';el.textContent=msg;box.append(el);setTimeout(()=>el.remove(),5000);};
@@ -28,7 +28,12 @@
   const download=(name,text,type='text/plain')=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
   const csv=rows=>rows.map(row=>row.map(v=>{let s=String(v??'');if(/^[=+@\-\t\r]/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}).join(',')).join('\r\n');
   const device=id=>D.state.devices.find(d=>d.id===Number(id));
-  const options=(vendor)=>D.state.devices.filter(d=>!vendor||d.vendor===vendor).map(d=>`<option value="${d.id}">${h(d.name)} · ${h(d.ip)}</option>`).join('');
+  // Platform facts come from the server registry in the bootstrap data.
+  const platform=id=>(D.state.platforms||[]).find(p=>p.id===id)||null;
+  const supports=(device,capability)=>Boolean(platform(device?.platform)?.capabilities.includes(capability));
+  const platformOptions=(selected,capability)=>(D.state.platforms||[]).filter(p=>!capability||p.capabilities.includes(capability)).map(p=>`<option value="${h(p.id)}" ${p.id===selected?'selected':''}>${h(p.label)}</option>`).join('');
+  const vendorOptions=(first='')=>[...(first?[first]:[]),...new Set((D.state.platforms||[]).map(p=>p.vendor))].map(v=>`<option>${h(v)}</option>`).join('');
+  const options=(vendor,capability)=>D.state.devices.filter(d=>(!vendor||d.vendor===vendor)&&(!capability||supports(d,capability))).map(d=>`<option value="${d.id}">${h(d.name)} · ${h(d.ip)}</option>`).join('');
   const empty=(title='No results',text='Try changing your filters.')=>`<div class="empty">${icon('search')}<h3>${h(title)}</h3><p>${h(text)}</p></div>`;
   const meter=(n,cls='blue')=>n==null?'<span class="muted">N/A</span>':`<span class="meter ${cls}"><span class="meter-track"><i style="width:${Math.max(0,Math.min(100,+n))}%"></i></span>${h(n)}%</span>`;
   const stamp=n=>new Date(n).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'});
@@ -64,7 +69,7 @@
       throw ex;
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
   }
-  window.Narsika={$,$$,D,h,icon,icons,badge,validIP,validPort,toast,modal,confirm,error,allowed,guard,permissions,download,csv,device,options,empty,meter,stamp,chart,apiFetch};
+  window.Narsika={$,$$,D,h,icon,icons,badge,validIP,validPort,toast,modal,confirm,error,allowed,guard,permissions,download,csv,device,options,platform,supports,platformOptions,vendorOptions,empty,meter,stamp,chart,apiFetch};
   const page=document.body.dataset.page;
   $('#dialog')?.addEventListener('cancel',event=>{if($('#dialog').dataset.busy==='true')event.preventDefault();});
   $$('.nav-link').forEach(a=>{if(a.dataset.page===page){a.classList.add('active');a.setAttribute('aria-current','page');}});

@@ -1,10 +1,28 @@
 """Explicit HTTPS package source and bounded downloads; never alter version pins."""
 import argparse
+import collections
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from urllib.parse import urlsplit
+
+# Launchers search the build output for this prefix and repeat the cause in their final error.
+CAUSE = 'NARSIKA_SETUP_CAUSE: '
+NETWORK_HELP = ('Set HTTPS_PROXY/HTTP_PROXY for the launcher, use a VPN in TUN mode that also handles DNS, '
+                'set the Docker Desktop proxy, or use NARSIKA_PIP_INDEX_URL with a trusted HTTPS mirror.')
+# Checked in order: network markers win, because pip also reports a resolver error
+# when it could not download anything at all.
+FAILURES = (
+    ('proxy', re.compile(r'ProxyError|Cannot connect to proxy|Tunnel connection failed|407 Proxy Authentication', re.I)),
+    ('dns', re.compile(r'name resolution|Name or service not known|nodename nor servname|getaddrinfo failed'
+                       r'|\[Errno -[23]\]|\[Errno 11001\]|No address associated with hostname', re.I)),
+    ('tls', re.compile(r'CERTIFICATE_VERIFY_FAILED|SSLError|certificate verify failed', re.I)),
+    ('connection', re.compile(r'Connection refused|timed out|ConnectTimeout|ReadTimeout|NewConnectionError'
+                              r'|Network is unreachable|Connection reset|Connection aborted|RemoteDisconnected', re.I)),
+    ('resolver', re.compile(r'ResolutionImpossible|No matching distribution found|Could not find a version that satisfies', re.I)),
+)
 
 
 def index_url(value):
@@ -54,16 +72,54 @@ def environment():
     return env
 
 
+def failed_host(output: str, index: str) -> str:
+    """The host named in pip's last connection error, or the index host."""
+    hosts = re.findall(r"host='([^']+)'", output) + re.findall(r'Could not fetch URL https?://([^/:\s]+)', output)
+    return hosts[-1] if hosts else (urlsplit(index).hostname or index)
+
+
+def classify(output: str, index: str) -> tuple[str, str]:
+    """(kind, one-line cause) for a failed pip run; kind is proxy, dns, tls, connection, resolver or unknown."""
+    kind = next((name for name, pattern in FAILURES if pattern.search(output)), 'unknown')
+    host = failed_host(output, index)
+    messages = {
+        'proxy': f'The proxy refused the connection or could not reach {host}. Check HTTPS_PROXY and that the proxy is reachable from Docker containers.',
+        'dns': f'Cannot resolve {host}: DNS name resolution failed in the build network. ' + NETWORK_HELP,
+        'tls': f'TLS certificate verification failed for {host}; something may be intercepting HTTPS. Verification stays enabled. '
+               'Use a trusted mirror with NARSIKA_PIP_INDEX_URL or fix the interception.',
+        'connection': f'Cannot connect to {host} (refused, reset or timed out). ' + NETWORK_HELP,
+        'resolver': f'The pinned package versions are not all available on {index}. The index may be an incomplete '
+                    'mirror; no version constraints were relaxed.',
+        'unknown': 'pip failed; see its output above.',
+    }
+    return kind, messages[kind]
+
+
+def run_pip(args: list, env: dict) -> tuple[int, str]:
+    """Run pip, showing its output live, and return its exit code and the end of that output."""
+    process = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, errors='replace')
+    tail = collections.deque(maxlen=500)
+    for line in process.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        tail.append(line)
+    return process.wait(), ''.join(tail)
+
+
 def install(python, requirements, options, interactive=True):
     selected = dict(options)
+    cause = 'pip failed; see its output above.'
     for attempt in range(3):
         print('Python package source: ' + selected['index'], flush=True)
         print(f"Download timeout: {selected['timeout']}s; retries: {selected['retries']}. TLS verification remains enabled.", flush=True)
-        result = subprocess.run(command(python, requirements, selected), env=environment())
-        if result.returncode == 0:
+        code, output = run_pip(command(python, requirements, selected), environment())
+        if code == 0:
             subprocess.run([str(python), '-m', 'pip', 'check'], check=True, env=environment())
             return selected
-        print('Package installation failed. A resolver error can also mean a pinned version is unavailable on this index.')
+        kind, cause = classify(output, selected['index'])
+        print('Package installation failed: ' + cause, flush=True)
+        print(CAUSE + 'Python packages: ' + cause, flush=True)
         print('No version constraints were relaxed. Service and database activation have not started.')
         if not interactive or attempt == 2:
             break
@@ -71,7 +127,7 @@ def install(python, requirements, options, interactive=True):
         if not value:
             break
         selected['index'] = index_url(value)
-    raise RuntimeError('Python dependencies could not be installed. See docs/INSTALLATION.md; the staged release is retained.')
+    raise RuntimeError('Python dependencies could not be installed: ' + cause + ' See docs/INSTALLATION.md; the staged release is retained.')
 
 
 def main():

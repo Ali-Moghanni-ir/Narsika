@@ -1,5 +1,7 @@
 """Release regression tests. Host UFW/systemd are never modified by this module."""
 import copy
+import os
+import sys
 from pathlib import Path
 import subprocess
 from types import SimpleNamespace
@@ -44,9 +46,13 @@ def test_download_limits_are_validated(key,value):
 
 def test_dependency_failure_can_retry_same_release_without_loosening_pins(monkeypatch):
     calls=[]
+    def run_pip(args,env):
+        calls.append(args)
+        return (1,'ERROR: ResolutionImpossible') if len(calls)==1 else (0,'')
     def run(args,**kwargs):
         calls.append(args)
-        return SimpleNamespace(returncode=1 if len(calls)==1 else 0)
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(dependencies,'run_pip',run_pip)
     monkeypatch.setattr(dependencies.subprocess,'run',run)
     monkeypatch.setattr('builtins.input',lambda _: 'https://second.invalid/simple')
     selected=dependencies.install('/venv/python',Path('/release/requirements.txt'),dependencies.settings({}))
@@ -262,3 +268,45 @@ vm.runInThisContext(fs.readFileSync('app/static/js/automation.js','utf8'));
 })().catch(error=>{console.error(error);process.exitCode=1;});
 '''
     subprocess.run(['node','-e',script],cwd=native.ROOT,check=True,capture_output=True,text=True)
+
+
+DNS_FAILURE = ("WARNING: Retrying (Retry(total=2)) after connection broken by 'NewConnectionError(...: Failed to establish a new connection: [Errno -3] Temporary failure in name resolution')'\n"
+               "ERROR: Could not install packages due to an OSError: HTTPSConnectionPool(host='files.pythonhosted.org', port=443): Max retries exceeded "
+               "with url: /packages/flask.whl (Caused by NameResolutionError(\"Failed to resolve 'files.pythonhosted.org' ([Errno -3] Temporary failure in name resolution)\"))\n")
+
+
+@pytest.mark.parametrize('output,kind,host', [
+    (DNS_FAILURE, 'dns', 'files.pythonhosted.org'),
+    ("ProxyError('Cannot connect to proxy.', NewConnectionError('Connection refused'))", 'proxy', 'pypi.org'),
+    # pip ends a failed download with a resolver error; the network cause must win.
+    ("Could not fetch URL https://pypi.org/simple/flask/: There was a problem confirming the ssl certificate: "
+     "SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED]'))\nERROR: ResolutionImpossible", 'tls', 'pypi.org'),
+    ("HTTPSConnectionPool(host='mirror.example.org', port=443): Read timed out.", 'connection', 'mirror.example.org'),
+    ('ERROR: Could not find a version that satisfies the requirement Flask==9.9.9\nERROR: No matching distribution found for Flask==9.9.9', 'resolver', 'pypi.org'),
+    ('Something else went wrong', 'unknown', 'pypi.org'),
+])
+def test_pip_failures_are_classified_with_the_failing_host(output,kind,host):
+    found,message=dependencies.classify(output,'https://pypi.org/simple/')
+    assert found==kind
+    if kind in ('dns','proxy','tls','connection'):
+        assert host in message and 'resolver' not in message.lower() and '\n' not in message
+    if kind=='dns':
+        assert 'HTTPS_PROXY' in message and 'NARSIKA_PIP_INDEX_URL' in message
+    if kind=='resolver':
+        assert 'no version constraints were relaxed' in message
+
+
+def test_failed_install_prints_one_cause_line_for_the_launcher(monkeypatch,capsys):
+    monkeypatch.setattr(dependencies,'run_pip',lambda args,env:(1,DNS_FAILURE))
+    with pytest.raises(RuntimeError) as failure:
+        dependencies.install('/venv/python',Path('/release/requirements.txt'),dependencies.settings({}),interactive=False)
+    printed=capsys.readouterr().out
+    causes=[line for line in printed.splitlines() if line.startswith(dependencies.CAUSE)]
+    assert len(causes)==1 and 'Cannot resolve files.pythonhosted.org' in causes[0]
+    assert 'A resolver error can also mean' not in printed
+    assert 'files.pythonhosted.org' in str(failure.value)
+
+
+def test_run_pip_streams_and_keeps_the_output(capsys):
+    code,output=dependencies.run_pip([sys.executable,'-c','print("first");import sys;sys.exit(4)'],dict(os.environ))
+    assert code==4 and 'first' in output and 'first' in capsys.readouterr().out

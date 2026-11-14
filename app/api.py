@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 from sqlalchemy.orm import joinedload, defer
 from .models import db, User, Group, Device, Credential, Setting, AuditEvent, AuditLog, OperationRun, Playbook, Backup, DiscoveryScan, DiscoveryCandidate, RunArtifact, now
 from .security import require, payload, integer, text, address, network, password_policy, encrypt, decrypt, audit, fail
-from .services import catalog, network as net, telemetry, backups
+from .services import catalog, network as net, telemetry, backups, platforms
 from .services.jobs import enqueue, worker_available
 from .services.automation import validate_operation
 
@@ -42,8 +42,8 @@ def device_query():
     return Device.query.options(joinedload(Device.group),joinedload(Device.credential))
 
 def bootstrap(view=None):
-    if not current_user.is_authenticated:return {'user':None,'devices':[],'groups':[],'credentials':[],'users':[],'audit':[],'settings':{}}
-    return dict(user=current_user.public(),devices=[d.public() for d in device_query().filter_by(archived_at=None).order_by(Device.name)],
+    if not current_user.is_authenticated:return {'user':None,'platforms':[],'devices':[],'groups':[],'credentials':[],'users':[],'audit':[],'settings':{}}
+    return dict(user=current_user.public(),platforms=platforms.public(),devices=[d.public() for d in device_query().filter_by(archived_at=None).order_by(Device.name)],
         groups=[g.public() for g in Group.query.filter_by(archived_at=None).order_by(Group.name)],
         credentials=[c.public() for c in Credential.query.order_by(Credential.name)] if current_user.role in ('ADMIN','OPERATOR') else [],
         users=[u.public() for u in User.query.order_by(User.id)] if current_user.role=='ADMIN' and view in (None,'settings') else [current_user.public()],
@@ -77,8 +77,8 @@ def normalize_device(data,row=None):
         duplicate=Device.query.filter_by(ip_address=values['ip_address'],archived_at=None).first()
         if duplicate and (row is None or duplicate.id!=row.id):fail('This IP address is already in inventory.','CONFLICT',409)
     if 'platform' in data:
-        if data['platform'] not in ('cisco','mikrotik'):fail('Select Cisco IOS or MikroTik RouterOS.')
-        values['platform']=data['platform'];values['os_type']='cisco_ios' if data['platform']=='cisco' else 'mikrotik_routeros'
+        platform=platforms.get(data['platform'])
+        values['platform']=platform.id;values['os_type']=platform.os_type
     for key in ('ssh_port','snmp_port'):
         if key in data:values[key]=integer(data[key],key)
     for key,model,kind in (('group_id',Group,None),('credential_id',Credential,'ssh'),('snmp_credential_id',Credential,'snmpv3')):
@@ -266,7 +266,7 @@ def device_interfaces(ident):return ok(telemetry.interfaces(get(Device,ident)))
 @require()
 def device_vlans(ident):
     device=get(Device,ident)
-    if device.platform!='cisco':fail('VLAN inventory is available for Cisco IOS.','UNSUPPORTED',422)
+    platforms.require(device,platforms.VLAN)
     with net.device_lock(device.id),net.connection(device) as connection:
         result=connection.send_command('show vlan brief',use_textfsm=True,read_timeout=20)
     if not isinstance(result,list):fail('This IOS VLAN output is unsupported by the parser.','UNSUPPORTED_OUTPUT',502)
@@ -285,7 +285,7 @@ def key_response(ip,port):
 @api.route('/playbooks',methods=['GET','POST'])
 @require()
 def playbooks():
-    if request.method=='GET':return ok({'items':[r.public() for r in Playbook.query.filter_by(active=True).order_by(Playbook.vendor,Playbook.title)]})
+    if request.method=='GET':return ok({'items':[{**r.public(),'fields':catalog.FORMS.get(r.name) if r.builtin else None} for r in Playbook.query.filter_by(active=True).order_by(Playbook.vendor,Playbook.title)]})
     return upload_playbook()
 
 @require('admin')
@@ -293,7 +293,7 @@ def upload_playbook():
     file=request.files.get('file') or request.files.get('playbook')
     if not file:fail('Choose a YAML file.')
     vendor=request.form.get('vendor','Any')
-    if vendor not in ('Cisco','MikroTik','Any'):fail('Invalid playbook vendor.')
+    if vendor not in ('Any',)+platforms.vendors():fail('Invalid playbook vendor.')
     row=catalog.upload(file,vendor,request.form.get('replace')=='true')
     candidate=Path(row.path)
     try:
@@ -350,10 +350,11 @@ def prepare_run(kind, device, data, actor_role=None):
     if kind=='playbook':
         book=get(Playbook,data.get('playbook_id'))
         if not book.active:fail('Select the active version of the playbook.','CONFLICT',409)
-        if book.vendor!='Any' and book.vendor.lower()!=device.platform:fail('The selected playbook does not support this platform.')
+        if book.vendor!='Any' and book.vendor!=platforms.of(device).vendor:fail('The selected playbook does not support this platform.')
         variables=data.get('variables',{})
         if not isinstance(variables,dict):fail('Playbook variables must be a JSON object.')
         if any(k.startswith('ansible_') or k in ('narsika_targets','narsika_artifact_root') for k in variables):fail('Connection and artifact variables are managed by the server.')
+        variables=catalog.form_variables(book,variables)
         if book.name in LEGACY_ACL_PLAYBOOKS:
             if actor_role != 'ADMIN':
                 fail('Legacy access-list playbooks can be run only by an administrator and cannot be '
@@ -465,13 +466,12 @@ def discovery_key(ident):
 def verify_candidate(ident):
     row=get(DiscoveryCandidate,ident);scan=get(DiscoveryScan,row.scan_id)
     data=payload({'platform','credential_id'},('platform','credential_id'))
-    if data['platform'] not in ('cisco','mikrotik'):fail('Select the expected platform.')
+    platform=platforms.get(data['platform'])
     credential=get(Credential,data['credential_id']);net.secret(credential)
     row.verified_at=None;row.verified_platform=None;row.verified_credential_id=None;db.session.commit()
-    target=SimpleNamespace(id='candidate-'+str(row.id),ip_address=row.ip_address,ssh_port=scan.ssh_port,platform=data['platform'],credential=credential)
-    with net.device_lock(target.id),net.connection(target,enable=False) as conn:
-        output=net.command(conn,'show version' if target.platform=='cisco' else '/system resource print')
-    verified=bool(re.search(r'Cisco.*(?:IOS|Software)|Cisco IOS|Catalyst',output,re.I)) if target.platform=='cisco' else 'version:' in output and ('board-name:' in output or 'architecture-name:' in output)
+    target=SimpleNamespace(id='candidate-'+str(row.id),ip_address=row.ip_address,ssh_port=scan.ssh_port,platform=platform.id,credential=credential)
+    with net.device_lock(target.id):
+        verified=platforms.driver(target).verify_identity(target)
     if not verified:fail('The authenticated response did not verify the selected platform.','UNSUPPORTED_OUTPUT',502)
     row.verified_at=now();row.verified_platform=target.platform;row.verified_credential_id=credential.id
     audit('Discovery candidate verified',row.ip_address);db.session.commit();return ok(row.public())
@@ -487,7 +487,7 @@ def import_candidates():
         if not row.verified_at or (datetime.now(timezone.utc)-datetime.fromisoformat(row.verified_at.replace('Z','+00:00'))).total_seconds()>1800:fail('Verify every selected candidate within the last 30 minutes before importing.')
         if Device.query.filter_by(ip_address=row.ip_address,archived_at=None).first():skipped.append(row.id);continue
         device=Device(name=row.ip_address,ip_address=address(row.ip_address),platform=row.verified_platform,
-            os_type='cisco_ios' if row.verified_platform=='cisco' else 'mikrotik_routeros',ssh_port=scan.ssh_port,
+            os_type=platforms.get(row.verified_platform).os_type,ssh_port=scan.ssh_port,
             credential_id=row.verified_credential_id,group_id=group)
         db.session.add(device);db.session.flush();row.imported_device_id=device.id;created.append(device.public())
     audit('Discovery candidates imported',str(len(created)));db.session.commit();return ok({'items':created,'skipped':skipped},201)
