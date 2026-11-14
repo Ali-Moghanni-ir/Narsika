@@ -72,7 +72,7 @@ Runtime: one Gunicorn worker (8 threads) per data directory, enforced by a file 
 
 ## Known traps
 
-- `tests/test_release_integration.py` asserts README content (License section required, no `## Documentation`, no "open source" wording) and exact playbook counts per vendor. Update those tests deliberately when you change README or add playbooks.
+- `tests/test_release_integration.py` asserts README content (`## Documentation` and `## License` sections required, no "open source" wording) and exact playbook counts per vendor. Update those tests deliberately when you change README or add playbooks.
 - `tools/package_release.py` ships only whitelisted root files (`ROOT_FILES`) and directories (`DIRECTORIES`). New root-level files that must be shipped need to be added there.
 - `tools/patch_ansible.py` checks the exact upstream source hash of `ansible.netcommon`; upgrading that collection requires updating the patch and `Playbooks/collections.lock.json`.
 - `tools/install_native.py` exits on Python < 3.12, which also stops pytest collection on older interpreters.

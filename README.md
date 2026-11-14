@@ -40,17 +40,25 @@ It is built for network engineers and IT teams who want a practical tool they ca
 
 | Area | What you get |
 |---|---|
-| **Inventory** | Cisco IOS / IOS XE and MikroTik RouterOS devices and Linux servers, groups, reusable SSH and SNMPv3 credential profiles, notes, and bounded IPv4 discovery of candidates in allowed ranges. |
+| **Inventory** | Cisco IOS / IOS XE and MikroTik RouterOS devices and Linux servers, groups, reusable SSH and SNMPv3 credential profiles, notes, and bounded IPv4 discovery (up to 256 addresses) inside the networks you allow. Discovered hosts are imported only after an authenticated identity check. |
 | **Monitoring** | On-demand health (reachability, identity, uptime, CPU, memory and, where the device reports it, temperature), interface state and SNMPv3 traffic rates while the page is open. Linux servers add load, filesystem usage and failed systemd units, and report interface rates over SSH. |
 | **Backups** | Encrypted running-configuration backups (on Linux, a read-only configuration snapshot) with SHA-256 checks, download and side-by-side comparison. |
-| **Automation** | A Cisco, MikroTik and Linux Ansible Playbook library with preview/apply mode, admin uploads, VLAN management and a persistent operation queue with live logs and cancellation. |
-| **Firewall** | Read a device's IPv4 filter rules, stage Allow/Block changes, review the exact commands, take a mandatory backup, apply, and verify the result over a fresh SSH connection. Create new Cisco named extended ACLs. |
+| **Automation** | A Cisco, MikroTik and Linux Ansible Playbook library with preview/apply mode, admin uploads, Cisco VLAN management and a persistent operation queue with live logs and cancellation. |
+| **Firewall** | On Cisco IOS and RouterOS: read the IPv4 filter rules, stage Allow/Block changes, review the exact commands, take a mandatory backup, apply, and verify the result over a fresh SSH connection. Create new Cisco named extended ACLs. |
 | **Schedules** | Run backups or Playbooks one time, every few hours, daily or weekly, with explicit time zones and per-occurrence history. |
 | **Access control** | ADMIN, OPERATOR and VIEWER roles enforced on the server, forced password changes, session revocation and a searchable audit log. |
 
+## Supported platforms
+
+| Platform | What Narsika does | What the device needs |
+|---|---|---|
+| **Cisco IOS / IOS XE** | Health, interfaces, running-configuration backups, Playbooks, VLAN management (L2 switches), Firewall | SSH; an enable password if your account needs one; SNMPv3 (optional) for traffic counters |
+| **MikroTik RouterOS** | Health, interfaces, configuration export backups, Playbooks, Firewall | SSH; RouterOS 7 for the bundled Playbooks; SNMPv3 optional |
+| **Linux servers** | Health (CPU, memory, load, filesystems, failed systemd units), interfaces with rates over SSH, read-only configuration snapshots, Playbooks (health report, pending updates, packages, systemd services) | SSH with a password or key. Monitoring and backups need no sudo. Playbooks need Python 3; the package and service Playbooks use sudo, and the service Playbook needs systemd |
+
 ## Quick start
 
-**Requirements:** a 64-bit Ubuntu 24.04+ server (or Windows 10/11 with hardware virtualization), about 4 GiB of RAM and 2 GiB of free disk, Internet access during installation, and SSH reachability to your devices (plus UDP 161 for SNMPv3).
+**Requirements:** a 64-bit (x86-64) Ubuntu 24.04+ server for the native install, any x86-64 Linux with Docker, or Windows 10 (22H2) / 11 x64 with hardware virtualization; about 4 GiB of RAM and at least 2 GiB of free disk; Internet access during installation; and SSH reachability to your devices (plus UDP 161 for SNMPv3).
 
 Download `narsika-X.Y.Z.zip` from the [latest release](https://github.com/Ali-Moghanni-ir/Narsika/releases/latest), extract it completely, and open a terminal in the extracted `narsika` folder. Each release also has a `.sha256` file for checking the download; see the [installation guide](docs/INSTALLATION.md#get-the-source).
 
@@ -74,9 +82,11 @@ run_windows.bat -WSL
 bash run_linux.sh --docker
 ```
 
+**Behind a proxy or a filtered network?** The Docker launchers first check that the package index, Ansible Galaxy and Debian are reachable, and stop within seconds naming any host they cannot reach. Set `HTTPS_PROXY` and `HTTP_PROXY` before running a launcher, or enable the Windows system proxy: the proxy is used for the image build only and is never stored in the image or the running container. See [Proxy, VPN and filtered networks](docs/INSTALLATION.md#proxy-vpn-and-filtered-networks).
+
 Sign in as `admin` with the password printed by the installer; you must choose a new password immediately. There is no default `admin/admin`.
 
-To upgrade a native Ubuntu installation, extract the new release into a fresh folder and run `sudo narsika-admin upgrade /absolute/path/to/new/narsika`. Data, accounts and keys are kept; see [Upgrading](docs/OPERATIONS.md#upgrading).
+To upgrade a native Ubuntu installation, extract the new release into a fresh folder and run `sudo narsika-admin upgrade /absolute/path/to/new/narsika`. For Docker, extract the new release into a fresh folder, copy the existing `.env` into it (it holds your encryption key) and run the launcher again. Data, accounts and keys are kept; see [Upgrading](docs/OPERATIONS.md#upgrading).
 
 Full requirements, mirrors for slow downloads, upgrades and troubleshooting: **[Installation guide](docs/INSTALLATION.md)**. Your first device, SSH trust and first backup: **[Getting started](docs/GETTING-STARTED.md)**.
 
@@ -84,8 +94,8 @@ Full requirements, mirrors for slow downloads, upgrades and troubleshooting: **[
 
 | Guide | For |
 |---|---|
-| [Installation](docs/INSTALLATION.md) | Ubuntu, Windows, WSL2 and Docker installs, mirrors, first sign-in |
-| [Getting started](docs/GETTING-STARTED.md) | Users and roles, first device, SSH host keys, health, backups, Playbooks |
+| [Installation](docs/INSTALLATION.md) | Ubuntu, Windows, WSL2 and Docker installs, mirrors, proxies and filtered networks, first sign-in |
+| [Getting started](docs/GETTING-STARTED.md) | Users and roles, first device or Linux server, SSH host keys, health, backups, Playbooks |
 | [Firewall](docs/FIREWALL.md) | Reviewed firewall changes on RouterOS and Cisco, risk levels, recovery |
 | [Scheduled tasks](docs/SCHEDULES.md) | Recurring backups and Playbooks, statuses, limits |
 | [Operations](docs/OPERATIONS.md) | Service commands, doctor, platform backup and restore, upgrades, HTTPS, configuration |
@@ -105,7 +115,7 @@ Roles belong to Narsika accounts; operating-system users are not mapped to them.
 
 ## How it is built
 
-Python 3.12–3.14 and Flask, Jinja templates with custom CSS and vanilla JavaScript, SQLite in WAL mode, Ansible Core with Netmiko and SNMPv3 for device access, served by Gunicorn under systemd or in a Docker container. There is no Redis, Celery, Node.js build step or external database: one small server is enough.
+Python 3.12–3.14 and Flask, Jinja templates with custom CSS and vanilla JavaScript, SQLite in WAL mode, Ansible Core, Netmiko and paramiko over SSH, and SNMPv3 for device access, served by Gunicorn under systemd or in a Docker container. Each device type is a small platform driver that declares what it supports. There is no Redis, Celery, Node.js build step or external database: one small server is enough.
 
 ```mermaid
 flowchart LR
@@ -113,7 +123,7 @@ flowchart LR
     N --> D["SQLite + encrypted files"]
     N --> Q["Operation queue + scheduler"]
     Q --> A["Ansible · SSH · SNMPv3"]
-    A --> E["Cisco and MikroTik devices"]
+    A --> E["Cisco, MikroTik and Linux"]
 ```
 
 ## Security
@@ -121,7 +131,8 @@ flowchart LR
 - Random one-time initial and reset passwords, mandatory password change, scrypt hashing and sign-in throttling.
 - Server-side role checks, CSRF protection, HttpOnly/SameSite cookies and session revocation after access changes.
 - Device credentials, backups, job parameters and artifacts encrypted at rest (Fernet).
-- Unknown SSH host keys are never trusted automatically; changed keys are rejected.
+- Unknown SSH host keys are never trusted automatically; changed keys are rejected. Linux Playbooks use OpenSSH with Narsika's own host-key file only.
+- Linux servers are read with fixed, read-only scripts that never use sudo.
 - Every device change goes through validation, the operation queue and the audit log.
 
 Narsika serves plain HTTP by default. Run it on a trusted management network and never expose it directly to the Internet; see [HTTPS](docs/OPERATIONS.md#https-with-nginx) for a reverse-proxy setup. To report a vulnerability, follow [SECURITY.md](SECURITY.md).
@@ -130,7 +141,7 @@ Narsika serves plain HTTP by default. Run it on a trusted management network and
 
 The current version is **0.9.0, a public beta**; see the [changelog](CHANGELOG.md). Every change runs the automated suite in CI on Python 3.12, 3.13 and 3.14, plus Docker and Windows installer checks. Health, backups and Playbooks have been used on MikroTik CHR, physical MikroTik and virtual Cisco devices. Device behaviour of the newest features — Firewall and scheduled tasks — still needs broader lab verification, so test changes on lab equipment with console access before using them in production.
 
-Linux server support is new: it is tested automatically over real SSH sessions, but not yet verified across distributions in a lab.
+Linux server support is new: it is tested automatically over real SSH sessions and was checked against an OpenSSH server on Ubuntu 24.04, but it has not yet been verified on other distributions or in a lab.
 
 Next up: HTTPS out of the box, persistent monitoring with alerts, and an AI assistant that proposes changes for human approval. See the [roadmap](docs/ROADMAP.md).
 
@@ -154,5 +165,5 @@ The Ansible callback plugin in `callback_plugins/` is licensed separately under 
 
 <p align="center">
   <strong>Narsika</strong><br>
-  Focused network operations for Cisco and MikroTik environments.
+  Focused network operations for Cisco, MikroTik and Linux environments.
 </p>
