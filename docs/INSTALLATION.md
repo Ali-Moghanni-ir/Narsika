@@ -119,6 +119,21 @@ Keep `.env` and the volume. Never use `docker compose down -v` for a normal shut
 
 Docker's published ports can bypass host UFW rules, and port forwarding can change the client address Narsika sees. Test access from an allowed and a denied client before team use.
 
+### Docker network
+
+Both Docker launchers (Windows and Linux) start Narsika on a dedicated bridge network, `198.18.250.0/24` with gateway `198.18.250.1`. The range is reserved for network benchmarking (RFC 2544) and is not used by enterprise LANs. Without it, Compose would take a subnet from Docker's default pools (`172.17.0.0/16` to `172.31.0.0/16`); when a managed device lives in an overlapping subnet such as `172.20.20.0/24`, the container routes its replies into the Docker bridge, and SSH fails with a timeout.
+
+To use another range, set both values in `.env` and restart with `docker compose up -d --no-build`:
+
+```bash
+NARSIKA_DOCKER_SUBNET=198.18.251.0/24
+NARSIKA_DOCKER_GATEWAY=198.18.251.1
+```
+
+Choose a range that no managed device, VPN or Docker network on the host uses. Docker Desktop's own internal network (`192.168.65.0/24` by default) is separate; change it in Docker Desktop only if a device lives in that exact range.
+
+Docker publishes port 8000 through the gateway, so browsers on the Docker host, and on Docker Desktop every browser, reach Narsika from `198.18.250.1`. Narsika therefore accepts that one address in addition to `NARSIKA_WEB_NETWORKS`. Under Docker, restrict who can open Narsika with `NARSIKA_BIND_ADDRESS` or a firewall in front of the host.
+
 ## First sign-in
 
 1. Open the printed address from a computer on an allowed management network.
@@ -273,6 +288,12 @@ sudo narsika-admin logs
 | "A local legacy database exists" | An old `instance/` database is inside the extracted folder. Follow [Migration](MIGRATION.md). |
 | "Python 3.12, 3.13 or 3.14 … is required" | Your Ubuntu's default Python is outside 3.12–3.14, or a required package could not be installed. Use a supported Ubuntu release and check `apt` access. |
 | WSL install stops at systemd | Enable systemd as described in [Windows (WSL2 Ubuntu)](#windows-wsl2-ubuntu). |
+| Host key check: `SSH_TIMEOUT` or `NO_ROUTE` | Nothing answered on the SSH port. Check the device's firewall and the route back to Narsika; in Docker, check that the device subnet does not overlap the [Docker network](#docker-network). |
+| Host key check: `SSH_REFUSED` | The port is closed: wrong SSH port, SSH service disabled, or a firewall rejects it. |
+| Host key check: `SSH_HANDSHAKE_FAILED` | The device closed the connection before SSH started. On RouterOS check `/ip service` `address` (available-from) for SSH; on Linux check `AllowUsers`, `MaxStartups` or TCP wrappers. |
+| Host key check: `NOT_SSH` | The port answers, but not with SSH. Check the port number. |
+| Host key check: `SSH_ALGORITHM_UNSUPPORTED` | The device offers no host key or key exchange algorithm Narsika accepts. Narsika accepts Ed25519, ECDSA and RSA keys, including legacy `ssh-rsa`. Update the device's SSH settings or firmware. |
+| Host key check: `LOCAL_NETWORK_DENIED` | The Narsika host or container is not permitted to open the connection (security policy, local firewall or container network mode). |
 
 When an installation step fails, the installer restores the previous release and configuration where there was one, and records the failed stage in the new release's `deployment-status.json`. UFW rules added before the failure are **not** removed automatically; review them with `sudo ufw status numbered`.
 

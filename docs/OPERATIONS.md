@@ -83,6 +83,7 @@ Native installations read `/etc/narsika/narsika.env`; Docker reads the project's
 | `NARSIKA_COOKIE_SECURE` | `false` | Set to `true` only behind HTTPS. |
 | `NARSIKA_TRUST_PROXY_HOPS` | `0` | Set to `1` only when a single reverse proxy is the *only* way to reach Narsika. |
 | `NARSIKA_BIND_ADDRESS` | `0.0.0.0` | Docker: host address the port is published on. |
+| `NARSIKA_DOCKER_SUBNET`, `NARSIKA_DOCKER_GATEWAY` | `198.18.250.0/24`, `198.18.250.1` | Docker: the container's bridge network. Change both together, only if the range is in use; see [Docker network](INSTALLATION.md#docker-network). |
 | `NARSIKA_SECRET_KEY`, `NARSIKA_ENCRYPTION_KEY` | generated | Session and data encryption keys. **Never change or regenerate them.** |
 
 Narsika runs one Gunicorn process with eight request threads and two operation workers per data directory. Do not add workers or run two instances against the same data.

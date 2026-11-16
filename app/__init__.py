@@ -39,6 +39,7 @@ def create_app(config=None):
         JOB_WORKERS=2,START_WORKER=os.getenv('NARSIKA_START_WORKER','true').lower()=='true',
         TRUST_PROXY_HOPS=int(os.getenv('NARSIKA_TRUST_PROXY_HOPS','0')),
         WEB_NETWORKS=os.getenv('NARSIKA_WEB_NETWORKS',''),
+        DOCKER_GATEWAY=os.getenv('NARSIKA_DOCKER_GATEWAY',''),
         ADMIN_USERNAME=os.getenv('NARSIKA_ADMIN_USERNAME','admin'),ADMIN_PASSWORD='')
     if config:app.config.update(config)
     # Bootstrap values must not remain in the environment inherited by child processes.
@@ -52,6 +53,10 @@ def create_app(config=None):
     if not 5<=app.config['JOB_TIMEOUT']<=300:raise RuntimeError('NARSIKA_JOB_TIMEOUT must be between 5 and 300 seconds.')
     if app.config['TRUST_PROXY_HOPS'] not in (0,1):raise RuntimeError('NARSIKA_TRUST_PROXY_HOPS must be 0 or 1.')
     web_networks = [ipaddress.IPv4Network(n.strip(), strict=True) for n in app.config['WEB_NETWORKS'].split(',') if n.strip()]
+    if web_networks and app.config['DOCKER_GATEWAY'].strip():
+        # Docker publishes ports through its bridge gateway, so browsers on the Docker host (and,
+        # on Docker Desktop, every client) arrive from this one address.
+        web_networks.append(ipaddress.IPv4Network(app.config['DOCKER_GATEWAY'].strip() + '/32'))
     if app.config['TRUST_PROXY_HOPS']:
         from werkzeug.middleware.proxy_fix import ProxyFix
         app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1,x_host=0,x_port=0,x_prefix=0)

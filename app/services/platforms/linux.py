@@ -664,6 +664,9 @@ def ansible_host_vars(device: object, username: str, values: dict, workdir: Path
     options = ['-F', '/dev/null', '-o', 'StrictHostKeyChecking=yes',
                '-o', 'UserKnownHostsFile=' + ssh_option_path(net.known_path()),
                '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'UpdateHostKeys=no', '-o', 'IdentitiesOnly=yes']
+    if net.legacy_rsa_only(device.ip_address, device.ssh_port):
+        # OpenSSH 8.8+ refuses SHA-1 ssh-rsa signatures; older servers sign the pinned RSA key only that way.
+        options += ['-o', 'HostKeyAlgorithms=rsa-sha2-512,rsa-sha2-256,ssh-rsa']
     result = dict(ansible_host=device.ip_address, ansible_port=device.ssh_port, ansible_user=username,
                   ansible_connection='ssh', ansible_host_key_checking=True,
                   ansible_python_interpreter='auto_silent')

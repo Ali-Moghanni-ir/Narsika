@@ -7,6 +7,11 @@ services:
     init: true
     env_file:
       - .env
+    environment:
+      # Published-port traffic can reach the app from the gateway; the source guard allows it.
+      NARSIKA_DOCKER_GATEWAY: ${NARSIKA_DOCKER_GATEWAY:-198.18.250.1}
+    networks:
+      - narsika
     ports:
       - "${NARSIKA_BIND_ADDRESS:-0.0.0.0}:${NARSIKA_PORT:-8000}:8000"
     volumes:
@@ -41,3 +46,12 @@ services:
       - ALL
 volumes:
   narsika-data:
+networks:
+  # RFC 2544 benchmark range: never used by enterprise LANs, so device routes cannot collide
+  # with Docker's default 172.17.0.0-172.31.255.255 pools or common 10/8 and 192.168/16 subnets.
+  narsika:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${NARSIKA_DOCKER_SUBNET:-198.18.250.0/24}
+          gateway: ${NARSIKA_DOCKER_GATEWAY:-198.18.250.1}
