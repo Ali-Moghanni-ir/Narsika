@@ -12,6 +12,7 @@ Notable changes to Narsika. Dates are in UTC. Versions follow [semantic versioni
 
 ### Changed
 - **Readable RouterOS firewall comments.** Rules Narsika adds now carry a comment such as `Narsika: Allow SSH tcp/22 from 10.0.0.0/24 to any (input)` instead of `NARSIKA_FW_<random id>`. The comment is unique on the device (a number is added if needed), so it still identifies the rule for apply, verification and recovery; the Firewall page attributes rules through their receipt. Rules with older `NARSIKA_FW_` tags are still recognised. Recovery commands remove a rule only when exactly one rule carries its comment.
+- RouterOS firewall rules take an optional name (up to 40 English letters, digits, spaces, `.`, `_` or `-`), written at the start of the comment, for example `Narsika: Mgmt SSH - Allow SSH tcp/22 from 10.0.0.0/24 to any (input)`. Other characters are refused, so a name cannot change the RouterOS command.
 - A platform registry and driver modules (`app/services/platforms/`) now decide what each device type supports. VLAN and Firewall requests for a platform without that capability are refused with `422 UNSUPPORTED` before any connection.
 - The interface reads platform names, vendors and capability filters from the server instead of hard-coded Cisco/MikroTik lists. The credential form explains that the enable password is the sudo password on Linux.
 

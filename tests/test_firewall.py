@@ -351,3 +351,24 @@ def test_routeros_rules_match_their_receipt(admin, app, monkeypatch):
         # The same comment on a rule with other fields is not attributed.
         changed = dict(rules=fw.parse_routeros(applied.replace('action="accept"', 'action="drop"')), acls={}, bindings=[])
         assert 'receipt_id' not in fw.annotate_receipt_matches(changed, dev)['rules'][0]
+
+
+def test_rule_name_is_written_into_the_routeros_comment():
+    data = intent(name='  Mgmt   HTTPS ')
+    plan = fw.compile_plan(data, fake_device(), snapshot(), 'ADMIN')
+    assert plan['items'][0]['expected']['tag'] == 'Narsika: Mgmt HTTPS - Allow HTTPS tcp/443 from 10.0.0.100/32 to any (input)'
+    assert plan['items'][0]['label'].startswith('1. Mgmt HTTPS: Allow https')
+    # Without a name the comment describes the rule only.
+    assert fw.normalize(intent(name=''), fake_device())[1][0].get('name') is None
+
+
+@pytest.mark.parametrize('name', ['x" disabled=yes', '$(reboot)', 'a;b', '[find]', 'نام', '-lead', 'x' * 41, 5, ['a']])
+def test_rule_name_cannot_change_the_command(name):
+    with pytest.raises(APIError):
+        fw.normalize(intent(name=name), fake_device())
+
+
+def test_rule_name_is_routeros_only():
+    data = intent(name='Mgmt', acl='TEST', sequence=10)
+    with pytest.raises(APIError, match='RouterOS'):
+        fw.normalize(data, fake_device('cisco'))

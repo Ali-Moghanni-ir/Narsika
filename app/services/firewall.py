@@ -180,7 +180,7 @@ def normalize(data, device):
     result = []
     for i, row in enumerate(changes):
         allowed = {'service', 'action', 'protocol', 'source', 'destination', 'port', 'chain', 'acl', 'sequence', 'position',
-                   'create_acl'}
+                   'create_acl', 'name'}
         if not isinstance(row, dict) or set(row)-allowed:
             fail('Unknown firewall rule fields.')
         protocol = row.get('protocol')
@@ -214,7 +214,12 @@ def normalize(data, device):
             if position not in ('first', 'last'):
                 fail('Select first or last rule position.')
             item.update(chain=chain, position=position)
+            name = rule_name(row.get('name'))
+            if name:
+                item['name'] = name
         else:
+            if row.get('name') not in (None, ''):
+                fail('Rule names are written as RouterOS comments; Cisco ACL entries are not named here.')
             acl = row.get('acl', '')
             if not isinstance(acl, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}', acl):
                 fail('Choose an existing named extended IPv4 ACL, or name a new one with letters, digits, _ or -.')
@@ -227,13 +232,27 @@ def normalize(data, device):
 
 LEGACY_TAG = re.compile(r'^NARSIKA_FW_[a-f0-9]{16}$')
 COMMENT_PREFIX = 'Narsika: '
+# Letters, digits, spaces and . _ - only: the name goes inside a quoted RouterOS string.
+RULE_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}')
+
+
+def rule_name(value: object) -> str:
+    """An optional rule name, validated so it cannot change the RouterOS command."""
+    if value in (None, ''):
+        return ''
+    if not isinstance(value, str):
+        fail('Rule name must be text.')
+    name = ' '.join(value.split())
+    if not RULE_NAME.fullmatch(name):
+        fail('Rule name: up to 40 English letters, digits, spaces, dots, dashes or underscores.')
+    return name
 
 
 def rule_comment(row: dict, taken: set) -> str:
     """A readable RouterOS comment that is unique on the device, so it also identifies the rule.
 
-    Built only from validated fields (fixed service names, protocol, port number, CIDRs, chain),
-    never from free-form input, so it is safe inside a quoted RouterOS string.
+    Built only from validated fields (fixed service names, protocol, port number, CIDRs, chain and
+    the restricted rule name), so it is safe inside a quoted RouterOS string.
     """
     if row['service'] != 'custom':
         what = next(p['name'] for p in PRESETS if p['id'] == row['service'])
@@ -241,8 +260,9 @@ def rule_comment(row: dict, taken: set) -> str:
         what = row['protocol'].upper()
     if row['port'] is not None:
         what += f' {row["protocol"]}/{row["port"]}' if row['service'] != 'custom' else f' {row["port"]}'
-    text = (f'{COMMENT_PREFIX}{row["action"].title()} {what} from {row["source"]} '
+    text = (f'{row["action"].title()} {what} from {row["source"]} '
             f'to {row["destination"]} ({row["chain"]})')
+    text = COMMENT_PREFIX + (row['name'] + ' - ' + text if row.get('name') else text)
     candidate = text
     number = 2
     while candidate in taken:
@@ -337,7 +357,7 @@ def compile_plan(data, device, state, role):
                         '/ip firewall filter remove $r } else={ :put "Skipped: not exactly one rule with comment '
                         + tag + '" } }']
             expected = dict(fields=fields, tag=tag)
-        label = f'{index+1}. {row["action"].title()} {row["service"] if row["service"]!="custom" else row["protocol"].upper()}'+(f' :{row["port"]}' if row['port'] else '')
+        label = f'{index+1}. '+(row['name']+': ' if row.get('name') else '')+f'{row["action"].title()} {row["service"] if row["service"]!="custom" else row["protocol"].upper()}'+(f' :{row["port"]}' if row['port'] else '')
         items.append(dict(label=label, rule=row, risk=risk, parents=parents, commands=commands, rollback=rollback, expected=expected))
     # Do not silently reorder first-match policies to move lockout last.
     # Any earlier lockout item must be moved by the user and reviewed again.
