@@ -53,10 +53,16 @@ def create_app(config=None):
     if not 5<=app.config['JOB_TIMEOUT']<=300:raise RuntimeError('NARSIKA_JOB_TIMEOUT must be between 5 and 300 seconds.')
     if app.config['TRUST_PROXY_HOPS'] not in (0,1):raise RuntimeError('NARSIKA_TRUST_PROXY_HOPS must be 0 or 1.')
     web_networks = [ipaddress.IPv4Network(n.strip(), strict=True) for n in app.config['WEB_NETWORKS'].split(',') if n.strip()]
-    if web_networks and app.config['DOCKER_GATEWAY'].strip():
-        # Docker publishes ports through its bridge gateway, so browsers on the Docker host (and,
-        # on Docker Desktop, every client) arrive from this one address.
-        web_networks.append(ipaddress.IPv4Network(app.config['DOCKER_GATEWAY'].strip() + '/32'))
+    gateway = app.config['DOCKER_GATEWAY'].strip()
+    # Docker forwards published-port traffic through its bridge gateway (on Docker Desktop, for every
+    # client). Earlier releases used a 172.16.0.0/12 bridge, so forwarded traffic was admitted only when
+    # the allow-list covered that range; keep exactly that decision for the new gateway address.
+    docker_bridges = ipaddress.IPv4Network('172.16.0.0/12')
+    if gateway and any(net.overlaps(docker_bridges) for net in web_networks):
+        try:
+            web_networks.append(ipaddress.IPv4Network(gateway + '/32'))
+        except ValueError:
+            raise RuntimeError('NARSIKA_DOCKER_GATEWAY must be a single IPv4 address.') from None
     if app.config['TRUST_PROXY_HOPS']:
         from werkzeug.middleware.proxy_fix import ProxyFix
         app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1,x_host=0,x_port=0,x_prefix=0)

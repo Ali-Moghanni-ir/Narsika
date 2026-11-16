@@ -132,7 +132,7 @@ NARSIKA_DOCKER_GATEWAY=198.18.251.1
 
 Choose a range that no managed device, VPN or Docker network on the host uses. Docker Desktop's own internal network (`192.168.65.0/24` by default) is separate; change it in Docker Desktop only if a device lives in that exact range.
 
-Docker publishes port 8000 through the gateway, so browsers on the Docker host, and on Docker Desktop every browser, reach Narsika from `198.18.250.1`. Narsika therefore accepts that one address in addition to `NARSIKA_WEB_NETWORKS`. Under Docker, restrict who can open Narsika with `NARSIKA_BIND_ADDRESS` or a firewall in front of the host.
+Docker publishes port 8000 through the gateway, so browsers on the Docker host, and on Docker Desktop every browser, reach Narsika from `198.18.250.1`. When `NARSIKA_WEB_NETWORKS` includes Docker's older bridge range `172.16.0.0/12`, as the default does, Narsika also accepts that gateway address, which keeps access working exactly as before. A narrowed list (for example `10.1.1.0/24` only) is not widened: add `198.18.250.1/32` to it explicitly if browsers must reach Narsika through Docker. Under Docker, the allow-list cannot tell those browsers apart, so restrict who can open Narsika with `NARSIKA_BIND_ADDRESS` or a firewall in front of the host.
 
 ## First sign-in
 

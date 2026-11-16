@@ -54,10 +54,15 @@ class HandshakeTimeout(Exception):
         self.banner_seen = banner_seen
 
 
-def probe_failure(error: BaseException, port: int) -> tuple[str, str, int]:
-    """(message, code, status) naming why the SSH host key could not be read."""
+def probe_failure(error: BaseException, port: int, preamble: bytes = b'') -> tuple[str, str, int]:
+    """(message, code, status) naming why the SSH host key could not be read.
+
+    preamble holds the first bytes the server sent, when any arrived before the failure.
+    """
     text = str(error)
     lowered = text.lower()
+    not_ssh = (f'TCP port {port} is open but did not answer as an SSH server. Check the port number.',
+               'NOT_SSH', 502)
     if isinstance(error, PermissionError) or getattr(error, 'errno', None) in (errno.EACCES, errno.EPERM):
         return ('Narsika is not permitted to open network connections from this host or container '
                 '(operating system permission error). Check the container network mode, a local firewall '
@@ -80,9 +85,21 @@ def probe_failure(error: BaseException, port: int) -> tuple[str, str, int]:
         return (f'The SSH handshake did not complete within {PROBE_TIMEOUT} seconds.',
                 'SSH_HANDSHAKE_FAILED', 502)
     if isinstance(error, paramiko.ssh_exception.IncompatiblePeer):
-        return ('The SSH handshake failed: the device offers no algorithm Narsika accepts '
-                f'({text}). Narsika accepts ssh-ed25519, ECDSA and RSA host keys, including '
-                'legacy ssh-rsa.', 'SSH_ALGORITHM_UNSUPPORTED', 502)
+        if 'version' in lowered:
+            return (f'The device speaks an unsupported SSH protocol version ({text}). Enable SSH version 2.',
+                    'SSH_ALGORITHM_UNSUPPORTED', 502)
+        if 'host key' in lowered:
+            detail = ('Narsika accepts ssh-ed25519, ECDSA and RSA host keys, including legacy ssh-rsa. '
+                      'Generate one of these host keys on the device.')
+        else:
+            detail = 'Update the device SSH settings or firmware to offer a current key exchange or cipher.'
+        return (f'The SSH handshake failed: the device offers no algorithm Narsika accepts ({text}). ' + detail,
+                'SSH_ALGORITHM_UNSUPPORTED', 502)
+    # A partial read such as b'SS' may still be the start of an SSH banner.
+    if preamble and preamble[:4] != b'SSH-'[:len(preamble[:4])] and (
+            'protocol banner' in lowered or 'protocol version' in lowered or isinstance(error, EOFError)):
+        # The service answered with something other than an SSH banner, such as HTTP or Telnet.
+        return not_ssh
     if 'protocol banner' in lowered:
         cause = error.__context__
         if isinstance(cause, (socket.timeout, TimeoutError)):
@@ -94,8 +111,7 @@ def probe_failure(error: BaseException, port: int) -> tuple[str, str, int]:
                 '/ip service available-from), or it limits concurrent sessions.',
                 'SSH_HANDSHAKE_FAILED', 502)
     if 'protocol version' in lowered or 'invalid ssh banner' in lowered:
-        return (f'TCP port {port} is open but did not answer as an SSH server. Check the port number.',
-                'NOT_SSH', 502)
+        return not_ssh
     if isinstance(error, (EOFError, ConnectionResetError)):
         return ('The device closed the connection during the SSH handshake. The SSH service may only '
                 'allow certain source addresses, or it limits concurrent sessions.',
@@ -111,8 +127,14 @@ def probe_failure(error: BaseException, port: int) -> tuple[str, str, int]:
 def probe_key(ip, port):
     """Read the device's SSH host key without trusting it."""
     address(ip)
+    preamble = b''
     try:
         with socket.create_connection((ip, port), timeout=PROBE_TIMEOUT) as sock:
+            try:
+                # Look at the first bytes without consuming them, to tell a non-SSH service apart.
+                preamble = sock.recv(8, socket.MSG_PEEK)
+            except (socket.timeout, TimeoutError):
+                raise HandshakeTimeout(banner_seen=False) from None
             transport = paramiko.Transport(sock)
             transport.banner_timeout = PROBE_TIMEOUT
             try:
@@ -123,7 +145,7 @@ def probe_key(ip, port):
             finally:
                 transport.close()
     except Exception as error:
-        message, code, status = probe_failure(error, port)
+        message, code, status = probe_failure(error, port, preamble)
         raise APIError(message, code, status) from None
     digest = base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip('=')
     record = dict(ip_address=ip, port=port, key_type=key.get_name(), public_key=key.get_base64(),

@@ -56,12 +56,29 @@ def banner_error(cause: BaseException) -> paramiko.SSHException:
     (HandshakeTimeout(banner_seen=False), 'NOT_SSH'),
     (HandshakeTimeout(banner_seen=True), 'SSH_HANDSHAKE_FAILED'),
     (paramiko.SSHException('Negotiation failed.'), 'SSH_HANDSHAKE_FAILED'),
+    (paramiko.ssh_exception.IncompatiblePeer('Incompatible version (1.5 instead of 2.0)'), 'SSH_ALGORITHM_UNSUPPORTED'),
 ])
 def test_host_key_failures_name_their_cause(error, code):
     message, found, status = probe_failure(error, 1284)
     assert found == code
     assert status == (503 if code == 'LOCAL_NETWORK_DENIED' else 502)
     assert message != 'Unable to retrieve the SSH host key.'
+
+
+def test_algorithm_messages_name_the_failing_negotiation():
+    kex = probe_failure(paramiko.ssh_exception.IncompatiblePeer('Incompatible ssh peer (no acceptable kex algorithm)'), 22)[0]
+    host = probe_failure(paramiko.ssh_exception.IncompatiblePeer('Incompatible ssh peer (no acceptable host key)'), 22)[0]
+    version = probe_failure(paramiko.ssh_exception.IncompatiblePeer('Incompatible version (1.5 instead of 2.0)'), 22)[0]
+    assert 'key exchange' in kex and 'host key' not in kex
+    assert 'ssh-rsa' in host
+    assert 'SSH version 2' in version
+
+
+def test_a_non_ssh_preamble_overrides_the_closed_connection_hint():
+    error = banner_error(EOFError())
+    assert probe_failure(error, 80, b'HTTP/1.1')[1] == 'NOT_SSH'
+    assert probe_failure(error, 22, b'SS')[1] == 'SSH_HANDSHAKE_FAILED'
+    assert probe_failure(error, 22, b'')[1] == 'SSH_HANDSHAKE_FAILED'
 
 
 def test_network_failures_point_at_docker_subnet_overlap():
@@ -103,7 +120,8 @@ def test_real_sockets_are_classified(app, monkeypatch):
     assert probe_code(app, serve(lambda conn: None))[0] == 'SSH_HANDSHAKE_FAILED'
     assert probe_code(app, serve(lambda conn: time.sleep(3)))[0] == 'NOT_SSH'
     web = serve(lambda conn: conn.sendall(b'HTTP/1.1 400 Bad Request\r\n\r\n'))
-    assert probe_code(app, web)[0] in ('NOT_SSH', 'SSH_HANDSHAKE_FAILED')
+    # A web server that answers and closes is not mistaken for an SSH access restriction.
+    assert probe_code(app, web)[0] == 'NOT_SSH'
 
 
 def pin(app, ip, port, key):
@@ -233,18 +251,37 @@ def test_dockerfile_installs_the_openssh_client():
     assert 'openssh-client' in (ROOT / 'Dockerfile').read_text()
 
 
-def test_docker_gateway_is_the_only_extra_web_source(config):
-    application = create_app({**config, 'WEB_NETWORKS': '127.0.0.0/8', 'DOCKER_GATEWAY': '198.18.250.1'})
+def guarded(config, networks: str, gateway: str):
+    application = create_app({**config, 'WEB_NETWORKS': networks, 'DOCKER_GATEWAY': gateway})
     client = application.test_client()
-    assert client.get('/healthz', environ_base={'REMOTE_ADDR': '198.18.250.1'}).status_code == 200
-    blocked = client.get('/healthz', environ_base={'REMOTE_ADDR': '198.18.250.7'})
-    assert blocked.status_code == 403 and blocked.json['error']['code'] == 'SOURCE_NOT_ALLOWED'
+
+    def status(source: str) -> int:
+        return client.get('/healthz', environ_base={'REMOTE_ADDR': source}).status_code
+
+    result = status
     with application.app_context():
         db.session.remove()
         db.engine.dispose()
+    return result
+
+
+def test_docker_gateway_is_the_only_extra_web_source(config):
+    # The default allow-list covers Docker's old 172.16.0.0/12 bridges, so forwarded traffic stays allowed.
+    status = guarded(config, '127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16', '198.18.250.1')
+    assert status('198.18.250.1') == 200
+    assert status('198.18.250.7') == 403
     # Without the Compose variable the gateway gets no special treatment.
-    plain = create_app({**config, 'WEB_NETWORKS': '127.0.0.0/8', 'DOCKER_GATEWAY': ''})
-    assert plain.test_client().get('/healthz', environ_base={'REMOTE_ADDR': '198.18.250.1'}).status_code == 403
-    with plain.app_context():
-        db.session.remove()
-        db.engine.dispose()
+    assert guarded(config, '127.0.0.0/8,172.16.0.0/12', '')('198.18.250.1') == 403
+
+
+def test_a_narrowed_allow_list_is_not_widened_by_the_gateway(config):
+    # Before, Docker-forwarded clients arrived from a 172.x gateway and were refused by this list.
+    status = guarded(config, '127.0.0.0/8,10.1.1.0/24', '198.18.250.1')
+    assert status('198.18.250.1') == 403
+    # Listing the gateway explicitly admits it.
+    assert guarded(config, '10.1.1.0/24,198.18.250.1/32', '198.18.250.1')('198.18.250.1') == 200
+
+
+def test_invalid_docker_gateway_is_a_clear_startup_error(config):
+    with pytest.raises(RuntimeError, match='NARSIKA_DOCKER_GATEWAY'):
+        create_app({**config, 'WEB_NETWORKS': '172.16.0.0/12', 'DOCKER_GATEWAY': '198.18.250.1/24'})
