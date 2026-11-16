@@ -101,7 +101,8 @@
     const query=$('#fw-search').value.toLowerCase(),rows=snapshot.rules.filter(r=>JSON.stringify(r).toLowerCase().includes(query));
     if(!rows.length){$('#fw-rules').innerHTML=`<div class="fw-empty"><h3>${query?'No matching rules':'No supported rules found'}</h3><p>${query?'Try a different search.':state.device.platform==='cisco'?'No named extended IPv4 ACL was found. Create a new one from Traffic scope. Standard and numbered ACLs are not editable here.':'No IPv4 filter entries were returned by the device.'}</p></div>`;return;}
     const mt=state.device.platform==='mikrotik';
-    const trace=r=>mt&&/^NARSIKA_FW_[a-f0-9]{16}$/.test(r.comment||'')?'Device tag':r.receipt_id?'Receipt match':'Unattributed';
+    // New rules carry a readable comment; their receipt identifies them. Older rules carry NARSIKA_FW_ tags.
+    const trace=r=>r.receipt_id?'Receipt match':mt&&/^NARSIKA_FW_[a-f0-9]{16}$/.test(r.comment||'')?'Device tag':'Unattributed';
     $('#fw-rules').innerHTML=`<table class="fw-table"><thead><tr><th>${mt?'Order':'Sequence'}</th><th>${mt?'Chain / state':'ACL'}</th><th>Observed configuration</th><th>Traceability</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="mono">${mt?r.index:r.sequence}</td><td>${h(mt?r.chain:r.acl)}${mt?`<br><span class="fw-muted">${r.disabled?'Disabled':'Enabled'}</span>`:''}</td><td class="fw-rule-code">${h(mt?r.raw.replace('/ip firewall filter add ',''):r.body)}</td><td><span class="badge" title="${h(r.receipt_id?'Matches receipt '+r.receipt_id+'; not proof of exclusive ownership.':'Device configuration observed over SSH.')}">${trace(r)}</span></td></tr>`).join('')}</tbody></table>`;
   }
   function setSnapshot(snapshot){
