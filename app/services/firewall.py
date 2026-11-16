@@ -224,13 +224,14 @@ def normalize(data, device):
             if not isinstance(acl, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,63}', acl):
                 fail('Choose an existing named extended IPv4 ACL, or name a new one with letters, digits, _ or -.')
             item.update(acl=acl, sequence=integer(row.get('sequence'), 'Sequence', 1, 2147483646), create_acl=create_acl)
-        if item in result:
+        # A name only labels a rule; the same rule under two names is still a duplicate.
+        unnamed = {key: value for key, value in item.items() if key != 'name'}
+        if any(unnamed == {key: value for key, value in other.items() if key != 'name'} for other in result):
             fail('The change set contains duplicate rules.')
         result.append(item)
     return source, result
 
 
-LEGACY_TAG = re.compile(r'^NARSIKA_FW_[a-f0-9]{16}$')
 COMMENT_PREFIX = 'Narsika: '
 # Letters, digits, spaces and . _ - only: the name goes inside a quoted RouterOS string.
 RULE_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}')
@@ -447,9 +448,14 @@ def field_matches(fields: dict, key: str, value: str) -> bool:
 
 
 def annotate_routeros_receipts(state, device):
-    """Mark RouterOS rules whose comment and fields match an applied receipt."""
+    """Mark RouterOS rules whose comment and fields match a receipt that reached the device.
+
+    Partial, failed and interrupted runs count too: their rule may have been added before the
+    run stopped, and the generated comment was unique on the device when it was reviewed.
+    """
     matches = {}
-    for row in FirewallReview.query.filter_by(device_id=device.id, status='SUCCESS').order_by(FirewallReview.created_at.desc()).limit(200):
+    sent = FirewallReview.query.filter(FirewallReview.device_id == device.id, FirewallReview.status != 'REVIEWED')
+    for row in sent.order_by(FirewallReview.created_at.desc()).limit(200):
         plan = decrypt(row.encrypted_plan)
         if digest(plan) != row.checksum or plan['target'] != target_identity(device):
             continue

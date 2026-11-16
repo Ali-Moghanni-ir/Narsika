@@ -368,6 +368,27 @@ def test_rule_name_cannot_change_the_command(name):
         fw.normalize(intent(name=name), fake_device())
 
 
+def test_the_same_rule_under_two_names_is_a_duplicate():
+    data = intent(name='First')
+    data['changes'].append({**data['changes'][0], 'name': 'Second'})
+    with pytest.raises(APIError, match='duplicate'):
+        fw.normalize(data, fake_device())
+
+
+def test_routeros_rules_from_failed_runs_keep_their_receipt(admin, app, monkeypatch):
+    target, receipt, baseline = make_review(admin, monkeypatch)
+    item = receipt['plan']['items'][0]['expected']
+    applied = '/ip firewall filter add ' + ' '.join(f'{k}="{v}"' for k, v in item['fields'].items())
+    with app.app_context():
+        dev = db.session.get(Device, target['id'])
+        state = dict(rules=fw.parse_routeros(applied), acls={}, bindings=[])
+        # A review that was never sent attributes nothing.
+        assert 'receipt_id' not in fw.annotate_receipt_matches(copy.deepcopy(state), dev)['rules'][0]
+        db.session.get(FirewallReview, receipt['id']).status = 'FAILED'
+        db.session.commit()
+        assert fw.annotate_receipt_matches(state, dev)['rules'][0]['receipt_id'] == receipt['id']
+
+
 def test_rule_name_is_routeros_only():
     data = intent(name='Mgmt', acl='TEST', sequence=10)
     with pytest.raises(APIError, match='RouterOS'):
