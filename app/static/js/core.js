@@ -10,6 +10,8 @@
   const validPort=s=>/^\d+$/.test(String(s))&&+s>=1&&+s<=65535;
   const toast=(msg)=>{const box=$('#toasts');if(!box)return;const el=document.createElement('div');el.className='toast';el.textContent=msg;box.append(el);setTimeout(()=>el.remove(),5000);};
   const modal=(title,body,setup)=>{const el=$('#dialog');if(!el||el.dataset.busy==='true')return;el.style.width='';el.innerHTML=`<div class="dialog-head"><h2 id="dialog-title">${h(title)}</h2><button class="btn icon-only ghost" data-close aria-label="Close">${icon('close')}</button></div><div class="dialog-body">${body}</div>`;$('[data-close]',el).onclick=()=>{if(el.dataset.busy!=='true')el.close();};if(!el.open)el.showModal();setup?.(el);};
+  // A host key read fails for distinct reasons (no route, timeout, closed port, handshake); keep the reason on screen.
+  const keyFailure=(ex)=>$('#dialog')?.dataset.busy==='true'?toast(ex.message):modal('SSH host key unavailable',`<p class="notice">${h(ex.message)}</p>${ex.code?`<p class="muted mono">Reason code: ${h(ex.code)}</p>`:''}`);
   const confirm=(title,description,fn)=>modal(title,`<p class="muted">${h(description)}</p><div class="dialog-actions"><button class="btn" id="cancel-confirm">Cancel</button><button class="btn primary" id="accept-confirm">Confirm</button></div>`,el=>{
     let pending=false;const accept=$('#accept-confirm',el);
     $('#cancel-confirm',el).onclick=()=>{if(!pending)el.close();};
@@ -69,7 +71,7 @@
       throw ex;
     }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
   }
-  window.Narsika={$,$$,D,h,icon,icons,badge,validIP,validPort,toast,modal,confirm,error,allowed,guard,permissions,download,csv,device,options,platform,supports,platformOptions,vendorOptions,empty,meter,stamp,chart,apiFetch};
+  window.Narsika={$,$$,D,h,icon,icons,badge,validIP,validPort,toast,modal,keyFailure,confirm,error,allowed,guard,permissions,download,csv,device,options,platform,supports,platformOptions,vendorOptions,empty,meter,stamp,chart,apiFetch};
   const page=document.body.dataset.page;
   $('#dialog')?.addEventListener('cancel',event=>{if($('#dialog').dataset.busy==='true')event.preventDefault();});
   $$('.nav-link').forEach(a=>{if(a.dataset.page===page){a.classList.add('active');a.setAttribute('aria-current','page');}});

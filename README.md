@@ -84,6 +84,8 @@ bash run_linux.sh --docker
 
 **Behind a proxy or a filtered network?** The Docker launchers first check that the package index, Ansible Galaxy and Debian are reachable, and stop within seconds naming any host they cannot reach. Set `HTTPS_PROXY` and `HTTP_PROXY` before running a launcher, or enable the Windows system proxy: the proxy is used for the image build only and is never stored in the image or the running container. See [Proxy, VPN and filtered networks](docs/INSTALLATION.md#proxy-vpn-and-filtered-networks).
 
+**Docker network.** The container runs on its own bridge network, `198.18.250.0/24` (gateway `198.18.250.1`), taken from the RFC 2544 benchmark range. It cannot collide with device subnets in `10.0.0.0/8`, `172.16.0.0/12` or `192.168.0.0/16`, so you never need to change Docker Desktop's address pools; Docker's default `172.17.0.0`–`172.31.0.0` networks would otherwise capture traffic to a device on, say, `172.20.20.0/24`. If `198.18.250.0/24` is in use on your network, set `NARSIKA_DOCKER_SUBNET` and `NARSIKA_DOCKER_GATEWAY` in `.env` before starting. See [Docker network](docs/INSTALLATION.md#docker-network).
+
 Sign in as `admin` with the password printed by the installer; you must choose a new password immediately. There is no default `admin/admin`.
 
 To upgrade a native Ubuntu installation, extract the new release into a fresh folder and run `sudo narsika-admin upgrade /absolute/path/to/new/narsika`. For Docker, extract the new release into a fresh folder, copy the existing `.env` into it (it holds your encryption key) and run the launcher again. Data, accounts and keys are kept; see [Upgrading](docs/OPERATIONS.md#upgrading).

@@ -121,3 +121,21 @@ test('platform helpers follow registry capabilities',()=>{
   assert.equal(N.vendorOptions('Any'),'<option>Any</option><option>Cisco</option><option>MikroTik</option><option>Linux</option>');
   assert.ok(N.badge('linux').includes('class="badge linux"'));
 });
+
+test('host key failures stay on screen with their reason code',()=>{
+  const {N,dialog}=runtime();
+  const failure=new Error('TCP port 1284 did not answer within 5 seconds. <b>');failure.code='SSH_TIMEOUT';
+  N.keyFailure(failure);
+  assert.equal(dialog.open,true);
+  assert.match(dialog.innerHTML,/SSH host key unavailable/);
+  assert.match(dialog.innerHTML,/Reason code: SSH_TIMEOUT/);
+  assert.match(dialog.innerHTML,/did not answer within 5 seconds\. &lt;b&gt;/);
+});
+
+test('host key failures fall back to a notice while the dialog is busy',()=>{
+  const {N,dialog,notices}=runtime();dialog.dataset.busy='true';
+  const failure=new Error('No route to the device.');failure.code='NO_ROUTE';
+  N.keyFailure(failure);
+  assert.equal(dialog.open,undefined);
+  assert.equal(notices.children.at(-1).textContent,'No route to the device.');
+});

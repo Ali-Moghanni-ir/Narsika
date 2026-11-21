@@ -39,6 +39,7 @@ def create_app(config=None):
         JOB_WORKERS=2,START_WORKER=os.getenv('NARSIKA_START_WORKER','true').lower()=='true',
         TRUST_PROXY_HOPS=int(os.getenv('NARSIKA_TRUST_PROXY_HOPS','0')),
         WEB_NETWORKS=os.getenv('NARSIKA_WEB_NETWORKS',''),
+        DOCKER_GATEWAY=os.getenv('NARSIKA_DOCKER_GATEWAY',''),
         ADMIN_USERNAME=os.getenv('NARSIKA_ADMIN_USERNAME','admin'),ADMIN_PASSWORD='')
     if config:app.config.update(config)
     # Bootstrap values must not remain in the environment inherited by child processes.
@@ -52,6 +53,16 @@ def create_app(config=None):
     if not 5<=app.config['JOB_TIMEOUT']<=300:raise RuntimeError('NARSIKA_JOB_TIMEOUT must be between 5 and 300 seconds.')
     if app.config['TRUST_PROXY_HOPS'] not in (0,1):raise RuntimeError('NARSIKA_TRUST_PROXY_HOPS must be 0 or 1.')
     web_networks = [ipaddress.IPv4Network(n.strip(), strict=True) for n in app.config['WEB_NETWORKS'].split(',') if n.strip()]
+    gateway = app.config['DOCKER_GATEWAY'].strip()
+    # Docker forwards published-port traffic through its bridge gateway (on Docker Desktop, for every
+    # client). Earlier releases used a 172.16.0.0/12 bridge, so forwarded traffic was admitted only when
+    # the allow-list covered that range; keep exactly that decision for the new gateway address.
+    docker_bridges = ipaddress.IPv4Network('172.16.0.0/12')
+    if gateway and any(net.overlaps(docker_bridges) for net in web_networks):
+        try:
+            web_networks.append(ipaddress.IPv4Network(gateway + '/32'))
+        except ValueError:
+            raise RuntimeError('NARSIKA_DOCKER_GATEWAY must be a single IPv4 address.') from None
     if app.config['TRUST_PROXY_HOPS']:
         from werkzeug.middleware.proxy_fix import ProxyFix
         app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1,x_host=0,x_port=0,x_prefix=0)
