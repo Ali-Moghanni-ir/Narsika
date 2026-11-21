@@ -312,3 +312,84 @@ def test_retention_preserves_runs_referenced_by_firewall_receipts(admin,app,monk
         run.status='FAILED';run.finished_at='2000-01-01T00:00:00Z';db.session.commit()
     preview=maintain(Path(app.config['DATA_DIR']),Path(app.config['BACKUP_DIR']),app.config['ENCRYPTION_KEY'],1)
     assert preview['records']['operation_run']==0
+
+
+def test_routeros_comments_are_readable_and_unique():
+    state = snapshot()
+    state['rules'] += fw.parse_routeros('/ip firewall filter add chain=input action=accept protocol=tcp dst-port=443 '
+                                        'src-address=10.0.0.100/32 comment="Narsika: Allow HTTPS tcp/443 from 10.0.0.100/32 to any (input)"')
+    data = intent()
+    data['changes'].append(dict(service='custom', protocol='udp', port=5000, action='block', source='any', destination='10.0.0.0/24'))
+    plan = fw.compile_plan(data, fake_device(), state, 'ADMIN')
+    comments = [item['expected']['tag'] for item in plan['items']]
+    # A comment already on the device gets a number; no random identifier is written.
+    assert comments == ['Narsika: Allow HTTPS tcp/443 from 10.0.0.100/32 to any (input) #2',
+                        'Narsika: Block UDP 5000 from any to 10.0.0.0/24 (input)']
+    assert not any('NARSIKA_FW_' in command for item in plan['items'] for command in item['commands'])
+    for text in comments:
+        assert '"' not in text and '$' not in text and '[' not in text and ';' not in text
+
+
+def test_routeros_recovery_removes_only_one_matching_rule():
+    plan = fw.compile_plan(intent(), fake_device(), snapshot(), 'ADMIN')
+    command = plan['items'][0]['rollback'][0]
+    assert ':if ([:len $r] = 1)' in command and '/ip firewall filter remove $r' in command
+    assert 'remove [find' not in command
+
+
+def test_routeros_rules_match_their_receipt(admin, app, monkeypatch):
+    target, receipt, baseline = make_review(admin, monkeypatch)
+    item = receipt['plan']['items'][0]['expected']
+    applied = '/ip firewall filter add ' + ' '.join(f'{k}="{v}"' for k, v in item['fields'].items())
+    with app.app_context():
+        row = db.session.get(FirewallReview, receipt['id'])
+        row.status = 'SUCCESS'
+        db.session.commit()
+        dev = db.session.get(Device, target['id'])
+        state = dict(rules=fw.parse_routeros(applied), acls={}, bindings=[])
+        assert fw.annotate_receipt_matches(state, dev)['rules'][0]['receipt_id'] == receipt['id']
+        # The same comment on a rule with other fields is not attributed.
+        changed = dict(rules=fw.parse_routeros(applied.replace('action="accept"', 'action="drop"')), acls={}, bindings=[])
+        assert 'receipt_id' not in fw.annotate_receipt_matches(changed, dev)['rules'][0]
+
+
+def test_rule_name_is_written_into_the_routeros_comment():
+    data = intent(name='  Mgmt   HTTPS ')
+    plan = fw.compile_plan(data, fake_device(), snapshot(), 'ADMIN')
+    assert plan['items'][0]['expected']['tag'] == 'Narsika: Mgmt HTTPS - Allow HTTPS tcp/443 from 10.0.0.100/32 to any (input)'
+    assert plan['items'][0]['label'].startswith('1. Mgmt HTTPS: Allow https')
+    # Without a name the comment describes the rule only.
+    assert fw.normalize(intent(name=''), fake_device())[1][0].get('name') is None
+
+
+@pytest.mark.parametrize('name', ['x" disabled=yes', '$(reboot)', 'a;b', '[find]', 'نام', '-lead', 'x' * 41, 5, ['a']])
+def test_rule_name_cannot_change_the_command(name):
+    with pytest.raises(APIError):
+        fw.normalize(intent(name=name), fake_device())
+
+
+def test_the_same_rule_under_two_names_is_a_duplicate():
+    data = intent(name='First')
+    data['changes'].append({**data['changes'][0], 'name': 'Second'})
+    with pytest.raises(APIError, match='duplicate'):
+        fw.normalize(data, fake_device())
+
+
+def test_routeros_rules_from_failed_runs_keep_their_receipt(admin, app, monkeypatch):
+    target, receipt, baseline = make_review(admin, monkeypatch)
+    item = receipt['plan']['items'][0]['expected']
+    applied = '/ip firewall filter add ' + ' '.join(f'{k}="{v}"' for k, v in item['fields'].items())
+    with app.app_context():
+        dev = db.session.get(Device, target['id'])
+        state = dict(rules=fw.parse_routeros(applied), acls={}, bindings=[])
+        # A review that was never sent attributes nothing.
+        assert 'receipt_id' not in fw.annotate_receipt_matches(copy.deepcopy(state), dev)['rules'][0]
+        db.session.get(FirewallReview, receipt['id']).status = 'FAILED'
+        db.session.commit()
+        assert fw.annotate_receipt_matches(state, dev)['rules'][0]['receipt_id'] == receipt['id']
+
+
+def test_rule_name_is_routeros_only():
+    data = intent(name='Mgmt', acl='TEST', sequence=10)
+    with pytest.raises(APIError, match='RouterOS'):
+        fw.normalize(data, fake_device('cisco'))
